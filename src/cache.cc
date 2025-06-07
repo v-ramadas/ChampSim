@@ -317,23 +317,13 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       ++sim_stats.pf_useful;
       way->prefetch = false;
     }
-    unsigned long addr = (handle_pkt.address.to<unsigned long>()/BLOCK_SIZE)*BLOCK_SIZE;
-    auto it = find(capacity.begin(), capacity.end(), addr);
-    if (it != capacity.end()) {
-      capacity.erase(it);
-      capacity.push_front(addr);
-    } else {
-      sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-      if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
-        capacity.pop_back();
-      }
-      capacity.push_front(addr);
-    }
+
+    bool result = check_capacity_miss(handle_pkt);
 
     if (BLOCK_SIZE != smallest_block_size) {
-     addr = (handle_pkt.address.to<unsigned long>()/smallest_block_size)*smallest_block_size;
-     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
-      it = find(ghost_cache_set->begin(), ghost_cache_set->end(), addr);
+      unsigned long addr = (handle_pkt.address.to<unsigned long>()/smallest_block_size)*smallest_block_size;
+      auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
+      auto it = find(ghost_cache_set->begin(), ghost_cache_set->end(), addr);
       if (it != ghost_cache_set->end()) {
         ghost_cache_set->erase(it);
         ghost_cache_set->push_front(addr);
@@ -422,26 +412,12 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }
 
-
-  unsigned long addr = ((handle_pkt.address.to<unsigned long>())/BLOCK_SIZE)*BLOCK_SIZE;
-  auto it = find(footprint.begin(), footprint.end(), addr);
-  if (it == footprint.end()) {
-    sim_stats.compulsory_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-    footprint.push_back(addr);
-    std::vector<unsigned long> cache_set(BLOCK_SIZE/smallest_block_size);
-  }
-
-  
-  if (find(capacity.begin(), capacity.end(), addr) == capacity.end()) {
-    sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-    if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
-        capacity.pop_back();
-    }
-    capacity.push_front(addr);
-  }
+  check_compulsory_miss(handle_pkt);
+  // Compulsory misses are subtracted away at the end
+  check_capacity_miss(handle_pkt);
 
   if (BLOCK_SIZE != smallest_block_size) {
-    addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
+    unsigned long addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
     if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
       if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
@@ -472,25 +448,13 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   to_allocate.data_promise.ready_at(current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
 
-  unsigned long addr = ((handle_pkt.address.to<unsigned long>())/BLOCK_SIZE)*BLOCK_SIZE;
-  auto it = find(footprint.begin(), footprint.end(), addr);
-  if (it == footprint.end()) {
-    sim_stats.compulsory_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-    footprint.push_back(addr);
-    std::vector<unsigned long> cache_set(BLOCK_SIZE/smallest_block_size);
-  }
-  
-  if (find(capacity.begin(), capacity.end(), addr) == capacity.end()) {
-    sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-    if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
-        capacity.pop_back();
-    }
-    capacity.push_front(addr);
-  }
+  check_compulsory_miss(handle_pkt);
+  // Compulsory misses are subtracted away at the end
+  check_capacity_miss(handle_pkt);
 
   if (BLOCK_SIZE != smallest_block_size) {
-   addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
-   auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
+    unsigned long addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
+    auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
     if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
       if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
         ghost_cache_set->pop_back();
@@ -979,7 +943,6 @@ void CACHE::begin_phase()
   new_sim_stats.total_unrealised_hits = sim_stats.total_unrealised_hits;
   new_sim_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
   new_sim_stats.total_evictions = sim_stats.total_evictions;
-
   // End copying
 
   roi_stats = new_roi_stats;
@@ -1091,3 +1054,36 @@ void CACHE::print_deadlock()
   }
 }
 // LCOV_EXCL_STOP
+
+bool CACHE::check_compulsory_miss(const tag_lookup_type& handle_pkt) {
+  unsigned long address = ((handle_pkt.address.to<unsigned long>())/BLOCK_SIZE)*BLOCK_SIZE;
+  auto it = find(footprint.begin(), footprint.end(), address);
+  bool result = false;
+  if (it == footprint.end()) {
+    sim_stats.compulsory_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    footprint.push_back(address);
+    std::vector<unsigned long> cache_set(BLOCK_SIZE/this->smallest_block_size);
+    result = true;
+  }
+  return result;
+}
+
+bool CACHE::check_capacity_miss(const tag_lookup_type& handle_pkt) {
+  unsigned long address = ((handle_pkt.address.to<unsigned long>())/BLOCK_SIZE)*BLOCK_SIZE;
+  auto it = find(capacity.begin(), capacity.end(), address);
+  bool result;
+  if (it != capacity.end()) {
+    capacity.erase(it);
+    capacity.push_front(address);
+    result = false;
+  } else {
+    sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
+      capacity.pop_back();
+    }
+    capacity.push_front(address);
+    result = true;
+  }
+  assert(capacity.size() <= (this->NUM_SET * this->NUM_WAY));
+  return true;
+}

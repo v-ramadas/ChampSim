@@ -149,7 +149,7 @@ private:
   std::deque<tag_lookup_type> inflight_tag_check{};
   std::deque<tag_lookup_type> translation_stash{};
 
-  //New fields
+  // Data structures and fields to track metadata, function as ghost cache, etc.
   std::vector<unsigned long> footprint{};
   std::deque<unsigned long> capacity{};
   std::vector<std::deque<unsigned long>> ghost_cache;
@@ -157,6 +157,7 @@ private:
   std::vector<std::vector<unsigned long>> infinite_cache;
   const unsigned int smallest_block_size = 4;
   unsigned int MAX_NUM_WAY;
+  // End of new structures and fields
 
 public:
   std::vector<channel_type*> upper_levels;
@@ -188,6 +189,11 @@ public:
   void initialize() final;
   void begin_phase() final;
   void end_phase(unsigned cpu) final;
+
+  // New auxilliary functions
+  bool check_compulsory_miss(const tag_lookup_type& handle_pkt);
+  bool check_capacity_miss(const tag_lookup_type& handle_pkt);
+  // End functions
 
   [[deprecated]] std::size_t get_occupancy(uint8_t queue_type, champsim::address address) const;
   [[deprecated]] std::size_t get_size(uint8_t queue_type, champsim::address address) const;
