@@ -170,7 +170,6 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       evictions_value_type total_evictions = stats.evictions.value_or(std::pair{type, cpu}, evictions_value_type{});
       compulsory_misses_value_type compulsory_misses = stats.compulsory_misses.value_or(std::pair{type, cpu}, compulsory_misses_value_type{});
       capacity_misses_value_type capacity_misses = stats.capacity_misses.value_or(std::pair{type, cpu}, capacity_misses_value_type{}) - compulsory_misses;
-      conflict_misses_value_type conflict_misses = total_misses - compulsory_misses - capacity_misses;
       unrealised_hits_value_type unrealised_hits = stats.unrealised_hits.value_or(std::pair{type, cpu}, unrealised_hits_value_type{});
       no_access_subblocks_value_type no_access_subblocks = stats.no_access_subblocks.value_or(std::pair{type, cpu}, no_access_subblocks_value_type{});
       total_hits_value_type full_sim_hits = stats.total_hits.value_or(std::pair{type, cpu}, total_hits_value_type{});
@@ -178,6 +177,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       total_unrealised_hits_value_type full_sim_unrealised_hits = stats.total_unrealised_hits.value_or(std::pair{type, cpu}, total_unrealised_hits_value_type{});
       total_evictions_value_type full_sim_evictions = stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
       total_no_access_subblocks_value_type full_sim_no_access_subblocks = stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
+      conflict_misses_value_type conflict_misses = full_sim_misses - compulsory_misses - capacity_misses;
 
 
       lines.push_back(
