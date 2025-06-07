@@ -33,7 +33,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
-
+#include <algorithm>
 #include "address.h"
 #include "bandwidth.h"
 #include "block.h"
@@ -148,6 +148,15 @@ private:
   std::deque<tag_lookup_type> internal_PQ{};
   std::deque<tag_lookup_type> inflight_tag_check{};
   std::deque<tag_lookup_type> translation_stash{};
+
+  //New fields
+  std::vector<unsigned long> footprint{};
+  std::deque<unsigned long> capacity{};
+  std::vector<std::deque<unsigned long>> ghost_cache;
+  std::vector<unsigned long> accesses_between_evictions;
+  std::vector<std::vector<unsigned long>> infinite_cache;
+  const unsigned int smallest_block_size = 4;
+  unsigned int MAX_NUM_WAY;
 
 public:
   std::vector<channel_type*> upper_levels;

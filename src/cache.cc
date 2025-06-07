@@ -48,6 +48,7 @@ CACHE::CACHE(CACHE&& other)
 {
   pref_module_pimpl->bind(this);
   repl_module_pimpl->bind(this);
+  accesses_between_evictions.assign(this->NUM_SET * this->NUM_WAY * (BLOCK_SIZE/smallest_block_size), 0);
 }
 
 auto CACHE::operator=(CACHE&& other) -> CACHE&
@@ -202,7 +203,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     writeback_packet.response_requested = false;
 
     if constexpr (champsim::debug_print) {
-      fmt::print("[{}] {} evict address: {} v_address: {} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address, writeback_packet.v_address,
+      fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address, writeback_packet.v_address,
                  fill_mshr.data_promise->pf_metadata);
     }
 
@@ -244,6 +245,28 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     ret->push_back(response);
   }
 
+  sim_stats.evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+  sim_stats.total_evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+
+  if (BLOCK_SIZE != smallest_block_size) {
+//    unsigned int subblocks_accessed = 0;
+    auto cache_line_idx = (get_set_index(evicting_address)*this->NUM_WAY + way_idx);
+    for (unsigned word_idx = 0; word_idx < (BLOCK_SIZE/smallest_block_size); word_idx++) {
+      if (accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] == 0) {
+        sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+        sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+
+//      } else {
+//        subblocks_accessed++;
+      }
+      accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] = 0;
+    }
+//    if (subblocks_accessed == 0) { //Evicting a cache line with no hits
+//      auto total_unaccessed_subblocks = sim_stats.no_access_subblocks.at(std::pair{fill_mshr.type, fill_mshr.cpu}) - (BLOCK_SIZE/smallest_block_size);
+//      sim_stats.no_access_subblocks.set(std::pair{fill_mshr.type, fill_mshr.cpu}, total_unaccessed_subblocks);
+//    }
+  }
+
   return true;
 }
 
@@ -275,7 +298,13 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 
   if (hit) {
     sim_stats.hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-
+    sim_stats.total_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    
+    if(BLOCK_SIZE != smallest_block_size) {
+      auto word_offset = (((handle_pkt.address.to<unsigned long>()/smallest_block_size)*smallest_block_size) % BLOCK_SIZE)/smallest_block_size;
+      auto cache_line_idx = (get_set_index(handle_pkt.address)*this->NUM_WAY + way_idx);
+      accesses_between_evictions[(cache_line_idx * BLOCK_SIZE/smallest_block_size) + word_offset] = 1;
+    }
     response_type response{handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me};
     for (auto* ret : handle_pkt.to_return) {
       ret->push_back(response);
@@ -287,6 +316,33 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     if (useful_prefetch) {
       ++sim_stats.pf_useful;
       way->prefetch = false;
+    }
+    unsigned long addr = (handle_pkt.address.to<unsigned long>()/BLOCK_SIZE)*BLOCK_SIZE;
+    auto it = find(capacity.begin(), capacity.end(), addr);
+    if (it != capacity.end()) {
+      capacity.erase(it);
+      capacity.push_front(addr);
+    } else {
+      sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+      if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
+        capacity.pop_back();
+      }
+      capacity.push_front(addr);
+    }
+
+    if (BLOCK_SIZE != smallest_block_size) {
+     addr = (handle_pkt.address.to<unsigned long>()/smallest_block_size)*smallest_block_size;
+     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
+      it = find(ghost_cache_set->begin(), ghost_cache_set->end(), addr);
+      if (it != ghost_cache_set->end()) {
+        ghost_cache_set->erase(it);
+        ghost_cache_set->push_front(addr);
+      } else {
+        if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
+          ghost_cache_set->pop_back();
+        }
+        ghost_cache_set->push_front(addr);
+      }
     }
   }
 
@@ -366,7 +422,40 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }
 
+
+  unsigned long addr = ((handle_pkt.address.to<unsigned long>())/BLOCK_SIZE)*BLOCK_SIZE;
+  auto it = find(footprint.begin(), footprint.end(), addr);
+  if (it == footprint.end()) {
+    sim_stats.compulsory_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    footprint.push_back(addr);
+    std::vector<unsigned long> cache_set(BLOCK_SIZE/smallest_block_size);
+  }
+
+  
+  if (find(capacity.begin(), capacity.end(), addr) == capacity.end()) {
+    sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
+        capacity.pop_back();
+    }
+    capacity.push_front(addr);
+  }
+
+  if (BLOCK_SIZE != smallest_block_size) {
+    addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
+    auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
+    if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
+      if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
+        ghost_cache_set->pop_back();
+      }
+      ghost_cache_set->push_front(addr);
+    } else {
+      sim_stats.unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+      sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    }
+  }
+
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+  sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
 
   return true;
 }
@@ -383,7 +472,38 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   to_allocate.data_promise.ready_at(current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
 
+  unsigned long addr = ((handle_pkt.address.to<unsigned long>())/BLOCK_SIZE)*BLOCK_SIZE;
+  auto it = find(footprint.begin(), footprint.end(), addr);
+  if (it == footprint.end()) {
+    sim_stats.compulsory_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    footprint.push_back(addr);
+    std::vector<unsigned long> cache_set(BLOCK_SIZE/smallest_block_size);
+  }
+  
+  if (find(capacity.begin(), capacity.end(), addr) == capacity.end()) {
+    sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
+        capacity.pop_back();
+    }
+    capacity.push_front(addr);
+  }
+
+  if (BLOCK_SIZE != smallest_block_size) {
+   addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
+   auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
+    if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
+      if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
+        ghost_cache_set->pop_back();
+      }
+      ghost_cache_set->push_front(addr);
+    } else {
+      sim_stats.unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+      sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    }
+  }
+
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+  sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
 
   return true;
 }
@@ -850,9 +970,32 @@ void CACHE::begin_phase()
 
   new_roi_stats.name = NAME;
   new_sim_stats.name = NAME;
+ 
+  // Stats to be carried over into next phase
+  new_sim_stats.total_hits = sim_stats.total_hits;
+  new_sim_stats.total_misses = sim_stats.total_misses;
+  new_sim_stats.compulsory_misses = sim_stats.compulsory_misses;
+  new_sim_stats.capacity_misses = sim_stats.capacity_misses;
+  new_sim_stats.total_unrealised_hits = sim_stats.total_unrealised_hits;
+  new_sim_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
+  new_sim_stats.total_evictions = sim_stats.total_evictions;
+
+  // End copying
 
   roi_stats = new_roi_stats;
   sim_stats = new_sim_stats;
+
+
+  if (BLOCK_SIZE != smallest_block_size) {
+    MAX_NUM_WAY = this->NUM_WAY * BLOCK_SIZE/smallest_block_size;
+    if (ghost_cache.size() != this->NUM_SET) {
+        ghost_cache.resize(this->NUM_SET);
+    }
+    
+    if (accesses_between_evictions.size() != this->NUM_SET*this->NUM_WAY * (BLOCK_SIZE/smallest_block_size)) {
+        accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * (BLOCK_SIZE/smallest_block_size), 0);
+    }
+  }
 
   for (auto* ul : upper_levels) {
     channel_type::stats_type ul_new_roi_stats;
@@ -864,19 +1007,33 @@ void CACHE::begin_phase()
 
 void CACHE::end_phase(unsigned finished_cpu)
 {
+
   finished_cpu = finished_cpu;
   roi_stats.total_miss_latency_cycles = sim_stats.total_miss_latency_cycles;
 
   roi_stats.hits = sim_stats.hits;
   roi_stats.misses = sim_stats.misses;
+  roi_stats.evictions = sim_stats.evictions;
+  roi_stats.compulsory_misses = sim_stats.compulsory_misses;
+  roi_stats.capacity_misses = sim_stats.capacity_misses;
   roi_stats.mshr_merge = sim_stats.mshr_merge;
   roi_stats.mshr_return = sim_stats.mshr_return;
+  roi_stats.unrealised_hits = sim_stats.unrealised_hits;
+  roi_stats.no_access_subblocks = sim_stats.no_access_subblocks;
 
   roi_stats.pf_requested = sim_stats.pf_requested;
   roi_stats.pf_issued = sim_stats.pf_issued;
   roi_stats.pf_useful = sim_stats.pf_useful;
   roi_stats.pf_useless = sim_stats.pf_useless;
   roi_stats.pf_fill = sim_stats.pf_fill;
+
+  // Stats to be carried over into next phase
+  roi_stats.total_hits = sim_stats.total_hits;
+  roi_stats.total_misses = sim_stats.total_misses;
+  roi_stats.total_unrealised_hits = sim_stats.total_unrealised_hits;
+  roi_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
+  roi_stats.total_evictions = sim_stats.total_evictions;
+  // End copying
 
   for (auto* ul : upper_levels) {
     ul->roi_stats.RQ_ACCESS = ul->sim_stats.RQ_ACCESS;
