@@ -130,7 +130,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     total_no_access_subblocks_value_type full_sim_no_access_subblocks = 0;
     total_evictions_value_type full_sim_evictions = 0;
 
-    for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION}) {
+    for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE}) {
       total_hits += stats.hits.value_or(std::pair{type, cpu}, hits_value_type{});
       total_misses += stats.misses.value_or(std::pair{type, cpu}, misses_value_type{});
       total_mshr_merge += stats.mshr_merge.value_or(std::pair{type, cpu}, mshr_merge_value_type{});
