@@ -23,6 +23,29 @@ struct cache_stats {
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> mshr_merge = {};
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> mshr_return = {};
 
+  // New cache stats added
+  // tracks the subblocks that weren't reused before eviction
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> no_access_subblocks = {};
+  // tracks the subblocks that weren't reused before eviction from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> total_no_access_subblocks = {};
+  // tracks the number of evictions
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> evictions = {};
+  // tracks the number of evictions from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> total_evictions = {};
+  // tracks the number of compulsory misses from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> compulsory_misses = {};
+  // tracks the number of capacity misses from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> capacity_misses = {};
+  // tracks the number of hits from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> total_hits = {};
+  // tracks the number of misses from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> total_misses = {};
+  // tracks the number of hits if a smaller cache block size was used
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> unrealised_hits = {};
+  // tracks the number of hits if a smaller cache block size was used from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> total_unrealised_hits = {};
+  // End of new stats
+
   long total_miss_latency_cycles{};
 };
 
