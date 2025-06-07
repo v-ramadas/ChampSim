@@ -249,22 +249,14 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   sim_stats.total_evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
 
   if (BLOCK_SIZE != smallest_block_size) {
-//    unsigned int subblocks_accessed = 0;
     auto cache_line_idx = (get_set_index(evicting_address)*this->NUM_WAY + way_idx);
     for (unsigned word_idx = 0; word_idx < (BLOCK_SIZE/smallest_block_size); word_idx++) {
       if (accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] == 0) {
         sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
         sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-
-//      } else {
-//        subblocks_accessed++;
       }
       accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] = 0;
     }
-//    if (subblocks_accessed == 0) { //Evicting a cache line with no hits
-//      auto total_unaccessed_subblocks = sim_stats.no_access_subblocks.at(std::pair{fill_mshr.type, fill_mshr.cpu}) - (BLOCK_SIZE/smallest_block_size);
-//      sim_stats.no_access_subblocks.set(std::pair{fill_mshr.type, fill_mshr.cpu}, total_unaccessed_subblocks);
-//    }
   }
 
   return true;
@@ -299,6 +291,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   if (hit) {
     sim_stats.hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     sim_stats.total_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+    check_capacity_miss(handle_pkt);
     
     if(BLOCK_SIZE != smallest_block_size) {
       auto word_offset = (((handle_pkt.address.to<unsigned long>()/smallest_block_size)*smallest_block_size) % BLOCK_SIZE)/smallest_block_size;
@@ -318,7 +311,6 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       way->prefetch = false;
     }
 
-    bool result = check_capacity_miss(handle_pkt);
 
     if (BLOCK_SIZE != smallest_block_size) {
       unsigned long addr = (handle_pkt.address.to<unsigned long>()/smallest_block_size)*smallest_block_size;
@@ -412,10 +404,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }
 
-  check_compulsory_miss(handle_pkt);
-  // Compulsory misses are subtracted away at the end
-  check_capacity_miss(handle_pkt);
-
   if (BLOCK_SIZE != smallest_block_size) {
     unsigned long addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
@@ -429,6 +417,10 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     }
   }
+
+  check_compulsory_miss(handle_pkt);
+  // Compulsory misses are subtracted away at the end
+  check_capacity_miss(handle_pkt);
 
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
@@ -448,10 +440,6 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   to_allocate.data_promise.ready_at(current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
 
-  check_compulsory_miss(handle_pkt);
-  // Compulsory misses are subtracted away at the end
-  check_capacity_miss(handle_pkt);
-
   if (BLOCK_SIZE != smallest_block_size) {
     unsigned long addr = ((handle_pkt.address.to<unsigned long>())/smallest_block_size)*smallest_block_size;
     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
@@ -465,6 +453,10 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
       sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     }
   }
+
+  check_compulsory_miss(handle_pkt);
+  // Compulsory misses are subtracted away at the end
+  check_capacity_miss(handle_pkt);
 
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
