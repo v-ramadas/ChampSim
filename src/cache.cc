@@ -214,8 +214,25 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   }
 
   champsim::address evicting_address{};
+  bool evicted = false;
   if (way != set_end && way->valid) {
     evicting_address = module_address(*way);
+    evicted = true;
+  }
+
+  if (evicted) {
+    if (BLOCK_SIZE != smallest_block_size) {
+      auto cache_line_idx = (get_set_index(evicting_address)*this->NUM_WAY + way_idx);
+      for (unsigned word_idx = 0; word_idx < (BLOCK_SIZE/smallest_block_size); word_idx++) {
+        if (accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] == 0) {
+          sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+          sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+        }
+        accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] = 0;
+      }
+    }
+    sim_stats.evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+    sim_stats.total_evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
   }
 
   auto metadata_thru = impl_prefetcher_cache_fill(module_address(fill_mshr), get_set_index(fill_mshr.address), way_idx,
@@ -243,20 +260,6 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
   for (auto* ret : fill_mshr.to_return) {
     ret->push_back(response);
-  }
-
-  sim_stats.evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-  sim_stats.total_evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-
-  if (BLOCK_SIZE != smallest_block_size) {
-    auto cache_line_idx = (get_set_index(evicting_address)*this->NUM_WAY + way_idx);
-    for (unsigned word_idx = 0; word_idx < (BLOCK_SIZE/smallest_block_size); word_idx++) {
-      if (accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] == 0) {
-        sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-        sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-      }
-      accesses_between_evictions[(cache_line_idx*BLOCK_SIZE/smallest_block_size) + word_idx] = 0;
-    }
   }
 
   return true;
@@ -1077,5 +1080,5 @@ bool CACHE::check_capacity_miss(const tag_lookup_type& handle_pkt) {
     result = true;
   }
   assert(capacity.size() <= (this->NUM_SET * this->NUM_WAY));
-  return true;
+  return result;
 }
