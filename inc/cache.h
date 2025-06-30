@@ -150,13 +150,14 @@ private:
   std::deque<tag_lookup_type> translation_stash{};
 
   // Data structures and fields to track metadata, function as ghost cache, etc.
-  std::vector<unsigned long> footprint{};
-  std::deque<unsigned long> capacity{};
-  std::vector<std::deque<unsigned long>> ghost_cache;
-  std::vector<unsigned long> accesses_between_evictions;
-  std::vector<std::vector<unsigned long>> infinite_cache;
-  const unsigned int smallest_block_size = 4;
-  unsigned int MAX_NUM_WAY;
+  std::vector<uint64_t> footprint{};
+  std::deque<uint64_t> capacity{};
+  std::vector<std::deque<uint64_t>> ghost_cache;
+  std::vector<uint64_t> accesses_between_evictions;
+  std::map<uint64_t, std::vector<champsim::address>> mshr_accesses_between_evictions;
+  std::vector<std::vector<uint64_t>> infinite_cache;
+  const uint64_t smallest_block_size = 8;
+  uint64_t MAX_NUM_WAY;
   // End of new structures and fields
 
 public:
@@ -193,6 +194,10 @@ public:
   // New auxilliary functions
   bool check_compulsory_miss(const tag_lookup_type& handle_pkt);
   bool check_capacity_miss(const tag_lookup_type& handle_pkt);
+  void register_sector_access(const tag_lookup_type& handle_pkt, uint64_t way_idx);
+  void register_sector_access(const champsim::address, uint64_t way_idx);
+  void register_sector_eviction(const champsim::address& addr, const mshr_type& fill_mshr, uint64_t way_idx);
+  uint64_t align_address(const uint64_t address, const uint64_t size);
   // End functions
 
   [[deprecated]] std::size_t get_occupancy(uint8_t queue_type, champsim::address address) const;

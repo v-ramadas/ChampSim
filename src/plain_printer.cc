@@ -148,7 +148,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     }
 
     capacity_misses -= compulsory_misses;
-    conflict_misses = full_sim_misses - compulsory_misses - capacity_misses;
+    conflict_misses = (full_sim_misses-total_mshr_merge) - compulsory_misses - capacity_misses;
 
     fmt::format_string<std::string_view, std::string_view, int, int, int> hitmiss_fmtstr{
         "cpu{}->{} {:<12s} ACCESS: {:10d} HIT: {:10d} MISS: {:10d} COMPULSORY_MISS: {:10d} CAPACITY_MISS: {:10d} CONFLICT_MISS: {:10d} MSHR_MERGE: {:10d}"};
@@ -159,7 +159,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
 
     lines.push_back(fmt::format(hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_hits + total_misses, total_hits, total_misses, compulsory_misses, capacity_misses, conflict_misses, total_mshr_merge));
     lines.push_back(fmt::format(subblock_access_fmtstr, cpu, stats.name, "TOTAL", total_evictions, full_sim_evictions, no_access_subblocks, full_sim_no_access_subblocks));
-    lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, "TOTAL", full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/(full_sim_hits+full_sim_misses)));
+    lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, "TOTAL", full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/float(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/float(full_sim_hits+full_sim_misses)));
 
 
     for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE, access_type::TRANSLATION}) {
@@ -187,7 +187,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
                       compulsory_misses, capacity_misses, conflict_misses,
                       stats.mshr_merge.value_or(std::pair{type, cpu}, mshr_merge_value_type{})));
       lines.push_back(fmt::format(subblock_access_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)), total_evictions,full_sim_evictions, no_access_subblocks, full_sim_no_access_subblocks));
-      lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)), full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/(full_sim_hits+full_sim_misses)));
+      lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)), full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/float(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/float(full_sim_hits+full_sim_misses)));
 
     lines.push_back(fmt::format("cpu{}->{} PREFETCH REQUESTED: {:10} ISSUED: {:10} USEFUL: {:10} USELESS: {:10}", cpu, stats.name, stats.pf_requested,
                                 stats.pf_issued, stats.pf_useful, stats.pf_useless));
