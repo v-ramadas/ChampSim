@@ -136,11 +136,6 @@ CACHE::mshr_type CACHE::mshr_type::merge(mshr_type predecessor, mshr_type succes
     }
   }
 
-  fmt::print("[MSHR_MERGE] {} address {} type: {} into address {} type: {} to_return_size {}\n", __func__, predecessor.address,
-                 access_type_names.at(champsim::to_underlying(predecessor.type)), successor.address,
-                 access_type_names.at(champsim::to_underlying(successor.type)), merged_return.size());
-
-
   return retval;
 }
 
@@ -169,7 +164,6 @@ template <typename T>
 champsim::address CACHE::module_address(const T& element) const
 {
   auto address = virtual_prefetch ? element.v_address : element.address;
-  //printf("Inside %s's, module_address: match_offset_bits %d, champsim::data::bits %d, OFFSET_BITS %d\n", NAME.c_str(), match_offset_bits, champsim::data::bits{}, OFFSET_BITS);
   return champsim::address{address.slice_upper(match_offset_bits ? champsim::data::bits{} : OFFSET_BITS)};
 }
 
@@ -262,7 +256,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
         register_sector_access(mshr_access_address, way_idx);
       mshr_accesses_between_evictions.erase(aligned_mshr_address);
   } else {
-      assert(false);
+      assert(0);
   }
 
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
@@ -404,10 +398,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     sim_stats.mshr_merge.increment(std::pair{to_allocate.type, to_allocate.cpu});
 
     *mshr_entry = mshr_type::merge(*mshr_entry, to_allocate);
-    fmt::print("[{}] {} Merging MSHR entry address: {} v_address: {} type: {} cycle: {}\n", NAME, __func__,
-               handle_pkt.address, handle_pkt.v_address, access_type_names.at(champsim::to_underlying(handle_pkt.type)),
-               current_time.time_since_epoch() / clock_period);
-
   } else {
     if (mshr_full) { // not enough MSHR resource
       return false;  // TODO should we allow prefetches anyway if they will not be filled to this level?
@@ -1102,14 +1092,12 @@ bool CACHE::check_capacity_miss(const tag_lookup_type& handle_pkt) {
   auto it = find(capacity.begin(), capacity.end(), address);
   bool result;
   if (it != capacity.end()) {
-    //printf("In %s, orig address: %lx address: %#lx, cache address: %#lx\n", NAME.c_str(), handle_pkt.address.to<uint64_t>(), address, *it);
     capacity.erase(it);
     capacity.push_front(address);
     result = false;
   } else {
     sim_stats.capacity_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     if (capacity.size() == (this->NUM_SET * this->NUM_WAY)) {
-      //printf("In %s, evicting %#lx to clear space for %#lx\n", NAME.c_str(), capacity.back(), address);
       capacity.pop_back();
     }
     capacity.push_front(address);
