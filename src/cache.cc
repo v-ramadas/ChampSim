@@ -206,6 +206,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
                  fill_mshr.data_promise->pf_metadata);
     }
 
+
     auto success = lower_level->add_wq(writeback_packet);
     if (!success) {
       return false;
@@ -252,11 +253,13 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   uint64_t aligned_mshr_address = (fill_mshr.address.to<uint64_t>()/BLOCK_SIZE)*BLOCK_SIZE;
   if (mshr_accesses_between_evictions.find(aligned_mshr_address) != mshr_accesses_between_evictions.end()) {
       // Found list of addresses
-      for (auto mshr_access_address: mshr_accesses_between_evictions[aligned_mshr_address])
-        register_sector_access(mshr_access_address, way_idx);
-      mshr_accesses_between_evictions.erase(aligned_mshr_address);
-  } else {
-      assert(0);
+      for (auto it = mshr_accesses_between_evictions[aligned_mshr_address].begin();
+             it != mshr_accesses_between_evictions[aligned_mshr_address].end();) {
+        register_sector_access(*it, way_idx);
+        it = mshr_accesses_between_evictions[aligned_mshr_address].erase(it);
+      }
+      if (mshr_accesses_between_evictions[aligned_mshr_address].size() == 0)
+          mshr_accesses_between_evictions.erase(aligned_mshr_address);
   }
 
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
