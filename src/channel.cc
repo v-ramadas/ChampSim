@@ -72,7 +72,7 @@ bool do_collision_for_return(Iter begin, Iter end, champsim::channel::request_ty
 void champsim::channel::check_collision()
 {
   auto write_shamt = match_offset_bits ? champsim::data::bits{} : OFFSET_BITS;
-  auto read_shamt = OFFSET_BITS;
+  auto read_shamt = match_offset_bits ? champsim::data::bits{} : OFFSET_BITS;
 
   // Check WQ for duplicates, merging if they are found
   for (auto wq_it = std::find_if(std::begin(WQ), std::end(WQ), std::not_fn(&request_type::forward_checked)); wq_it != std::end(WQ);) {
