@@ -49,6 +49,9 @@ CACHE::CACHE(CACHE&& other)
   pref_module_pimpl->bind(this);
   repl_module_pimpl->bind(this);
   accesses_between_evictions.assign(this->NUM_SET * this->NUM_WAY * num_blocks, 0);
+  if (sim_stats.evictions_breakdown.size() != this->num_blocks) {
+      sim_stats.evictions_breakdown.assign(this->num_blocks, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  }
 }
 
 auto CACHE::operator=(CACHE&& other) -> CACHE&
@@ -932,6 +935,9 @@ void CACHE::initialize()
 {
   impl_prefetcher_initialize();
   impl_initialize_replacement();
+  if (sim_stats.evictions_breakdown.size() != this->num_blocks) {
+      sim_stats.evictions_breakdown.assign(this->num_blocks, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  }
 }
 
 void CACHE::begin_phase()
@@ -1145,6 +1151,11 @@ void CACHE::register_sector_eviction(const champsim::address& addr, const mshr_t
         uint64_t idx = (cache_line_idx*num_blocks) + word_idx;
         accesses_between_evictions[idx] = 0;
       }
+
+      // If no subblock accessed during eviction, then this means that the line was allocated but got evicted before fill
+      // Happens sometimes during warmup
+      if (subblocks_accessed == 0) subblocks_accessed = 1;
+
       // Update subblocks_accessed - 1 as arrays start at 0
       sim_stats.evictions_breakdown[subblocks_accessed-1].increment(std::pair{fill_mshr.type, fill_mshr.cpu});
     }

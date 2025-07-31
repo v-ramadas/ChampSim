@@ -219,7 +219,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       total_unrealised_hits_value_type per_type_full_sim_unrealised_hits = stats.total_unrealised_hits.value_or(std::pair{type, cpu}, total_unrealised_hits_value_type{});
       total_evictions_value_type per_type_full_sim_evictions = stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
       total_no_access_subblocks_value_type per_type_full_sim_no_access_subblocks = stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
-      per_type_capacity_misses -= per_type_compulsory_misses;
+      //per_type_capacity_misses -= per_type_compulsory_misses;
       conflict_misses_value_type per_type_conflict_misses = (per_type_full_sim_misses - per_type_total_mshr_merge) - per_type_compulsory_misses - per_type_capacity_misses;
 
 
