@@ -61,7 +61,7 @@ KNOB<UINT64> KnobROIStartAddress(KNOB_MODE_WRITEONCE, "pintool", "roiStart", "0"
 
 KNOB<UINT64> KnobROIEndAddress(KNOB_MODE_WRITEONCE, "pintool", "roiEnd", "0x1000", "Offset of the ROI function within the text segment");
 
-KNOB<std::string> KnobBMKName(KNOB_MODE_WRITEONCE, "pintool", "bmkName", "stream", "Name of the ROI to be profiled.");
+KNOB<std::string> KnobBMKName(KNOB_MODE_WRITEONCE, "pintool", "bmkName", "stream", "Name of the benchmark to be profiled.");
 
 /* ===================================================================== */
 // Utilities
