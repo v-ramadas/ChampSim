@@ -170,6 +170,22 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     lines.push_back(fmt::format(subblock_access_fmtstr, cpu, stats.name, "TOTAL", total_evictions, full_sim_evictions, no_access_subblocks, full_sim_no_access_subblocks));
     lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, "TOTAL", full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/float(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/float(full_sim_hits+full_sim_misses)));
     switch(num_blocks) {
+        case 1:
+            {
+                fmt::format_string<std::string_view, std::string_view, int, int, int, int> evictions_breakdown_fmtstr{
+                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 1: {:10d}"};
+                lines.push_back(fmt::format(evictions_breakdown_fmtstr, cpu, stats.name, "TOTAL",
+                    evictions_breakdown[0]));
+                    break;
+            }
+        case 2:
+            {
+                fmt::format_string<std::string_view, std::string_view, int, int, int, int> evictions_breakdown_fmtstr{
+                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 1: {:10d} 2: {:10d}"};
+                lines.push_back(fmt::format(evictions_breakdown_fmtstr, cpu, stats.name, "TOTAL",
+                    evictions_breakdown[0], evictions_breakdown[1]));
+                break;
+            }
         case 4:
             {
                 fmt::format_string<std::string_view, std::string_view, int, int, int, int> evictions_breakdown_fmtstr{
