@@ -320,8 +320,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     }
 
 
-    if (BLOCK_SIZE != smallest_block_size) {
-      uint64_t addr = (handle_pkt.address.to<uint64_t>()/smallest_block_size)*smallest_block_size;
+    if (num_blocks > 1) {
+      uint64_t addr = (handle_pkt.address.to<uint64_t>()/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
       auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
       auto it = find(ghost_cache_set->begin(), ghost_cache_set->end(), addr);
       if (it != ghost_cache_set->end()) {
@@ -422,8 +422,8 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }
 
-  if (BLOCK_SIZE != smallest_block_size) {
-    uint64_t addr = ((handle_pkt.address.to<uint64_t>())/smallest_block_size)*smallest_block_size;
+  if (num_blocks > 1) {
+    uint64_t addr = ((handle_pkt.address.to<uint64_t>())/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
     if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
       if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
@@ -458,8 +458,8 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   to_allocate.data_promise.ready_at(current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
 
-  if (BLOCK_SIZE != smallest_block_size) {
-    uint64_t addr = ((handle_pkt.address.to<uint64_t>())/smallest_block_size)*smallest_block_size;
+  if (num_blocks > 1) {
+    uint64_t addr = ((handle_pkt.address.to<uint64_t>())/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
     if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
       if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
@@ -964,8 +964,8 @@ void CACHE::begin_phase()
   roi_stats = new_roi_stats;
   sim_stats = new_sim_stats;
 
-
-  if (BLOCK_SIZE != smallest_block_size) {
+  num_blocks = (BLOCK_SIZE/CACHE_BLOCK_SIZE);
+  if (num_blocks > 1) {
     MAX_NUM_WAY = this->NUM_WAY * num_blocks;
     if (ghost_cache.size() != this->NUM_SET) {
         ghost_cache.resize(this->NUM_SET);
@@ -1123,23 +1123,23 @@ bool CACHE::check_capacity_miss(const tag_lookup_type& handle_pkt) {
 }
 
 void CACHE::register_sector_access(const tag_lookup_type& handle_pkt, uint64_t way_idx) {
-    if(BLOCK_SIZE != smallest_block_size) {
-      uint64_t word_offset = (((handle_pkt.address.to<uint64_t>()/smallest_block_size)*smallest_block_size) % BLOCK_SIZE)/smallest_block_size;
+    if(num_blocks > 1) {
+      uint64_t word_offset = (((handle_pkt.address.to<uint64_t>()/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE) % BLOCK_SIZE)/CACHE_BLOCK_SIZE;
       auto cache_line_idx = (get_set_index(handle_pkt.address)*this->NUM_WAY + way_idx);
       accesses_between_evictions[(cache_line_idx * num_blocks) + word_offset] = 1;
     }
 }
 
 void CACHE::register_sector_access(const champsim::address address, uint64_t way_idx) {
-    if(BLOCK_SIZE != smallest_block_size) {
-      uint64_t word_offset = (align_address(address.to<uint64_t>(), smallest_block_size) % BLOCK_SIZE)/smallest_block_size;
+    if(num_blocks > 1) {
+      uint64_t word_offset = (align_address(address.to<uint64_t>(), CACHE_BLOCK_SIZE) % BLOCK_SIZE)/CACHE_BLOCK_SIZE;
       auto cache_line_idx = (get_set_index(address)*this->NUM_WAY + way_idx);
       accesses_between_evictions[(cache_line_idx * num_blocks) + word_offset] = 1;
     }
 }
 
 void CACHE::register_sector_eviction(const champsim::address& addr, const mshr_type& fill_mshr, uint64_t way_idx) {
-    if (BLOCK_SIZE != smallest_block_size) {
+    if (num_blocks > 1) {
       auto cache_line_idx = (get_set_index(addr)*this->NUM_WAY + way_idx);
       uint64_t subblocks_accessed = num_blocks;
       for (unsigned word_idx = 0; word_idx < num_blocks; word_idx++) {

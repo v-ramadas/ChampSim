@@ -50,6 +50,8 @@ const unsigned PAGE_SIZE = configured_environment::page_size;
 #endif
 const unsigned LOG2_BLOCK_SIZE = champsim::lg2(BLOCK_SIZE);
 const unsigned LOG2_PAGE_SIZE = champsim::lg2(PAGE_SIZE);
+unsigned int CACHE_BLOCK_SIZE = 8;
+unsigned int LOG2_CACHE_BLOCK_SIZE = champsim::lg2(CACHE_BLOCK_SIZE);
 
 #ifndef CHAMPSIM_TEST_BUILD
 int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
@@ -84,6 +86,8 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
       app.add_option("--json", json_file_name, "The name of the file to receive JSON output. If no name is specified, stdout will be used")->expected(0, 1);
 
   app.add_option("traces", trace_names, "The paths to the traces")->required()->expected(NUM_CPUS)->check(CLI::ExistingFile);
+  auto* cache_block_size_option = app.add_option("-b,--cache-block-size", CACHE_BLOCK_SIZE, "The cache block size to be used.");
+
 
   CLI11_PARSE(app, argc, argv);
 

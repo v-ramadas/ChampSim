@@ -31,6 +31,8 @@ extern const unsigned BLOCK_SIZE;
 extern const unsigned PAGE_SIZE;
 extern const unsigned LOG2_BLOCK_SIZE;
 extern const unsigned LOG2_PAGE_SIZE;
+extern unsigned CACHE_BLOCK_SIZE;
+extern unsigned LOG2_CACHE_BLOCK_SIZE;
 
 namespace champsim
 {

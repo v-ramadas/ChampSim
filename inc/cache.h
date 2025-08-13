@@ -156,8 +156,7 @@ private:
   std::vector<uint64_t> accesses_between_evictions;
   std::map<uint64_t, std::vector<champsim::address>> mshr_accesses_between_evictions;
   std::vector<std::vector<uint64_t>> infinite_cache;
-  const uint64_t smallest_block_size = 8;
-  const uint64_t num_blocks = BLOCK_SIZE/smallest_block_size;
+  unsigned num_blocks = 1;
   uint64_t MAX_NUM_WAY;
   // End of new structures and fields
 
