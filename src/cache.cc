@@ -303,7 +303,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     sim_stats.hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     sim_stats.total_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
 
-    check_capacity_miss(handle_pkt);
+    if (ENABLE_MISS_BREAKDOWN) check_capacity_miss(handle_pkt);
     register_sector_access(handle_pkt, way_idx);
     
     response_type response{handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me};
@@ -436,9 +436,11 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }*/
 
-  check_compulsory_miss(handle_pkt);
-  // Compulsory misses are subtracted away at the end
-  check_capacity_miss(handle_pkt);
+  if (ENABLE_MISS_BREAKDOWN) {
+    check_compulsory_miss(handle_pkt);
+    // Compulsory misses are subtracted away at the end
+    check_capacity_miss(handle_pkt);
+  }
 
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
@@ -472,9 +474,11 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
     }
   }*/
 
-  check_compulsory_miss(handle_pkt);
-  // Compulsory misses are subtracted away at the end
-  check_capacity_miss(handle_pkt);
+  if (ENABLE_MISS_BREAKDOWN) {
+    check_compulsory_miss(handle_pkt);
+    // Compulsory misses are subtracted away at the end
+    check_capacity_miss(handle_pkt);
+  }
 
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});

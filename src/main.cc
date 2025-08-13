@@ -50,6 +50,7 @@ const unsigned PAGE_SIZE = configured_environment::page_size;
 #endif
 const unsigned LOG2_BLOCK_SIZE = champsim::lg2(BLOCK_SIZE);
 const unsigned LOG2_PAGE_SIZE = champsim::lg2(PAGE_SIZE);
+bool ENABLE_MISS_BREAKDOWN = false;
 unsigned int CACHE_BLOCK_SIZE = 8;
 unsigned int LOG2_CACHE_BLOCK_SIZE = champsim::lg2(CACHE_BLOCK_SIZE);
 
@@ -74,6 +75,8 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
 
   app.add_flag("-c,--cloudsuite", knob_cloudsuite, "Read all traces using the cloudsuite format");
   app.add_flag("--hide-heartbeat", set_heartbeat_callback, "Hide the heartbeat output");
+  app.add_flag("--enable-miss-breakdown", ENABLE_MISS_BREAKDOWN, "Enable miss breakdown statistics in the cache stats.");
+
   auto* warmup_instr_option = app.add_option("-w,--warmup-instructions", warmup_instructions, "The number of instructions in the warmup phase");
   auto* deprec_warmup_instr_option =
       app.add_option("--warmup_instructions", warmup_instructions, "[deprecated] use --warmup-instructions instead")->excludes(warmup_instr_option);
@@ -86,8 +89,8 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
       app.add_option("--json", json_file_name, "The name of the file to receive JSON output. If no name is specified, stdout will be used")->expected(0, 1);
 
   app.add_option("traces", trace_names, "The paths to the traces")->required()->expected(NUM_CPUS)->check(CLI::ExistingFile);
-  auto* cache_block_size_option = app.add_option("-b,--cache-block-size", CACHE_BLOCK_SIZE, "The cache block size to be used.");
 
+  auto* cache_block_size_option = app.add_option("-b,--cache-block-size", CACHE_BLOCK_SIZE, "The cache block size to be used.");
 
   CLI11_PARSE(app, argc, argv);
 

@@ -156,8 +156,10 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       }
     }
 
-    capacity_misses -= compulsory_misses;
-    conflict_misses = (full_sim_misses-total_mshr_merge) - compulsory_misses - capacity_misses;
+    if (ENABLE_MISS_BREAKDOWN) {
+      capacity_misses -= compulsory_misses;
+      conflict_misses = (full_sim_misses-total_mshr_merge) - compulsory_misses - capacity_misses;
+    }
 
     fmt::format_string<std::string_view, std::string_view, int, int, int> hitmiss_fmtstr{
         "cpu{}->{} {:<12s} ACCESS: {:10d} HIT: {:10d} MISS: {:10d} COMPULSORY_MISS: {:10d} CAPACITY_MISS: {:10d} CONFLICT_MISS: {:10d} MSHR_MERGE: {:10d}"};
@@ -235,9 +237,11 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       total_unrealised_hits_value_type per_type_full_sim_unrealised_hits = stats.total_unrealised_hits.value_or(std::pair{type, cpu}, total_unrealised_hits_value_type{});
       total_evictions_value_type per_type_full_sim_evictions = stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
       total_no_access_subblocks_value_type per_type_full_sim_no_access_subblocks = stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
-      //per_type_capacity_misses -= per_type_compulsory_misses;
-      conflict_misses_value_type per_type_conflict_misses = (per_type_full_sim_misses - per_type_total_mshr_merge) - per_type_compulsory_misses - per_type_capacity_misses;
-
+      conflict_misses_value_type per_type_conflict_misses = 0;
+      if (ENABLE_MISS_BREAKDOWN) {
+        per_type_capacity_misses -= per_type_compulsory_misses;
+        per_type_conflict_misses = (per_type_full_sim_misses - per_type_total_mshr_merge) - per_type_compulsory_misses - per_type_capacity_misses;
+      }  
 
       lines.push_back(
           fmt::format(hitmiss_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)),
