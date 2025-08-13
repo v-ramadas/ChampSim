@@ -152,7 +152,7 @@ private:
   // Data structures and fields to track metadata, function as ghost cache, etc.
   std::vector<uint64_t> footprint{};
   std::deque<uint64_t> capacity{};
-  std::vector<std::deque<uint64_t>> ghost_cache;
+  /*std::vector<std::deque<uint64_t>> ghost_cache;*/
   std::vector<uint64_t> accesses_between_evictions;
   std::map<uint64_t, std::vector<champsim::address>> mshr_accesses_between_evictions;
   std::vector<std::vector<uint64_t>> infinite_cache;

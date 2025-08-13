@@ -320,7 +320,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     }
 
 
-    if (num_blocks > 1) {
+    /*if (num_blocks > 1) {
       uint64_t addr = (handle_pkt.address.to<uint64_t>()/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
       auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
       auto it = find(ghost_cache_set->begin(), ghost_cache_set->end(), addr);
@@ -333,7 +333,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
         }
         ghost_cache_set->push_front(addr);
       }
-    }
+    }*/
   } else {
     // Request missed in cache. Add it to mshr_accesses_between_evicitons so that we can use this info during handle_fill to mark which subblocks were accessed
 
@@ -422,7 +422,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }
 
-  if (num_blocks > 1) {
+  /*if (num_blocks > 1) {
     uint64_t addr = ((handle_pkt.address.to<uint64_t>())/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
     if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
@@ -434,7 +434,7 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
       sim_stats.unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
       sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     }
-  }
+  }*/
 
   check_compulsory_miss(handle_pkt);
   // Compulsory misses are subtracted away at the end
@@ -458,7 +458,7 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   to_allocate.data_promise.ready_at(current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
 
-  if (num_blocks > 1) {
+  /*if (num_blocks > 1) {
     uint64_t addr = ((handle_pkt.address.to<uint64_t>())/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
     auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
     if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
@@ -470,7 +470,7 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
       sim_stats.unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
       sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     }
-  }
+  }*/
 
   check_compulsory_miss(handle_pkt);
   // Compulsory misses are subtracted away at the end
@@ -966,10 +966,10 @@ void CACHE::begin_phase()
 
   num_blocks = (BLOCK_SIZE/CACHE_BLOCK_SIZE);
   if (num_blocks > 1) {
-    MAX_NUM_WAY = this->NUM_WAY * num_blocks;
+    /*MAX_NUM_WAY = this->NUM_WAY * num_blocks;
     if (ghost_cache.size() != this->NUM_SET) {
         ghost_cache.resize(this->NUM_SET);
-    }
+    }*/
     
     if (accesses_between_evictions.size() != this->NUM_SET*this->NUM_WAY * num_blocks) {
         accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * num_blocks, 0);
