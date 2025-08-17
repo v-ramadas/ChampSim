@@ -141,8 +141,12 @@ private:
 
   template <typename T>
   champsim::address module_address(const T& element) const;
+  template <typename T>
+  champsim::address cache_module_address(const T& element) const;
 
   auto matches_address(champsim::address address) const;
+  auto matches_cache_address(champsim::address address) const;
+
   std::pair<mshr_type, request_type> mshr_and_forward_packet(const tag_lookup_type& handle_pkt);
 
   std::deque<tag_lookup_type> internal_PQ{};
@@ -156,7 +160,10 @@ private:
   std::vector<uint64_t> accesses_between_evictions;
   std::map<uint64_t, std::vector<champsim::address>> mshr_accesses_between_evictions;
   std::vector<std::vector<uint64_t>> infinite_cache;
-  unsigned num_blocks = 1;
+  unsigned int CACHE_BLOCK_SIZE;
+  unsigned int LOG2_CACHE_BLOCK_SIZE;
+  unsigned num_blocks_in_line = 1;
+  unsigned num_sectors = 1;
   uint64_t MAX_NUM_WAY;
   // End of new structures and fields
 
@@ -172,6 +179,7 @@ public:
   champsim::chrono::clock::duration HIT_LATENCY;
   champsim::chrono::clock::duration FILL_LATENCY;
   champsim::data::bits OFFSET_BITS;
+  champsim::data::bits CACHE_OFFSET_BITS;
   set_type block{static_cast<typename set_type::size_type>(NUM_SET * NUM_WAY)};
   champsim::bandwidth::maximum_type MAX_TAG, MAX_FILL;
   bool prefetch_as_load;

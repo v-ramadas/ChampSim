@@ -31,8 +31,8 @@ extern const unsigned BLOCK_SIZE;
 extern const unsigned PAGE_SIZE;
 extern const unsigned LOG2_BLOCK_SIZE;
 extern const unsigned LOG2_PAGE_SIZE;
-extern unsigned CACHE_BLOCK_SIZE;
-extern unsigned LOG2_CACHE_BLOCK_SIZE;
+extern unsigned SMALLER_BLOCK_SIZE;
+extern unsigned LOG2_SMALLER_BLOCK_SIZE;
 extern bool ENABLE_MISS_BREAKDOWN;
 
 namespace champsim
@@ -41,6 +41,7 @@ struct deadlock : public std::exception {
   const uint32_t which;
   explicit deadlock(uint32_t cpu) : which(cpu) {}
 };
+
 //#define DEBUG_PRINT
 #ifdef DEBUG_PRINT
 constexpr bool debug_print = true;
