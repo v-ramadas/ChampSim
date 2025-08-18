@@ -727,6 +727,10 @@ long O3_CPU::retire_rob()
   num_retired += retire_count;
   ROB.erase(retire_begin, retire_end);
 
+  if ((sim_instr() % 10000000) == 0) {
+      fmt::print("CPU finished 10M instructions in current phase\n");
+  }
+
   return retire_count;
 }
 

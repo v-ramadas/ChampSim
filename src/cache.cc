@@ -226,8 +226,8 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       writeback_packet.response_requested = false;
 
       if constexpr (champsim::debug_print) {
-        fmt::print("[{}] {} evict address: {} v_address: {} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address, writeback_packet.v_address,
-                   fill_block_mshr.data_promise->pf_metadata);
+        fmt::print("[{}] {} evict address: {} v_address: {} set: {} way: {} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address, writeback_packet.v_address,
+                   get_set_index(writeback_packet.address), way_idx, fill_block_mshr.data_promise->pf_metadata);
       }
 
       auto success = lower_level->add_wq(writeback_packet);
