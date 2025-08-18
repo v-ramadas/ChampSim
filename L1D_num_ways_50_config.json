@@ -1,6 +1,6 @@
 {
-    "executable_name": "champsim_16b_way_50",
-    "block_size": 16,
+    "executable_name": "champsim_way_50",
+    "block_size": 64,
     "page_size": 4096,
     "heartbeat_frequency": 10000000,
     "num_cores": 1,
