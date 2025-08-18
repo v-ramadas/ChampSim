@@ -1,6 +1,6 @@
 {
-    "executable_name": "champsim_8b_way_78",
-    "block_size": 8,
+    "executable_name": "champsim_way_28",
+    "block_size": 64,
     "page_size": 4096,
     "heartbeat_frequency": 10000000,
     "num_cores": 1,
@@ -57,7 +57,7 @@
 
     "L1D": {
         "sets": 2048,
-        "ways": 78,
+        "ways": 28,
         "rq_size": 64,
         "wq_size": 64,
         "pq_size": 8,
