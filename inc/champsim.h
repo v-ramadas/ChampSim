@@ -34,6 +34,7 @@ extern const unsigned LOG2_PAGE_SIZE;
 extern unsigned SMALLER_BLOCK_SIZE;
 extern unsigned LOG2_SMALLER_BLOCK_SIZE;
 extern bool ENABLE_MISS_BREAKDOWN;
+extern bool DISABLE_LRU;
 
 namespace champsim
 {

@@ -20,6 +20,8 @@ struct cache_stats {
 
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> hits = {};
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> misses = {};
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> partial_hits = {};
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> partial_misses = {};
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> mshr_merge = {};
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> mshr_return = {};
 
@@ -40,6 +42,11 @@ struct cache_stats {
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> total_hits = {};
   // tracks the number of misses from start of simulation
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> total_misses = {};
+  // tracks the number of partial hits from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> full_sim_partial_hits = {};
+  // tracks the number of partial misses from start of simulation
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> full_sim_partial_misses = {};
+
   // tracks the number of hits if a smaller cache block size was used
   champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> unrealised_hits = {};
   // tracks the number of hits if a smaller cache block size was used from start of simulation

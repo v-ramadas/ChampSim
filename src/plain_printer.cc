@@ -81,6 +81,11 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
   using total_no_access_subblocks_value_type = typename decltype(stats.total_no_access_subblocks)::value_type;
   using total_hits_value_type = typename decltype(stats.total_hits)::value_type;
   using total_misses_value_type = typename decltype(stats.total_misses)::value_type;
+  using partial_hits_value_type = typename decltype(stats.partial_hits)::value_type;
+  using partial_misses_value_type = typename decltype(stats.partial_misses)::value_type;
+  using full_sim_partial_hits_value_type = typename decltype(stats.full_sim_partial_hits)::value_type;
+  using full_sim_partial_misses_value_type = typename decltype(stats.full_sim_partial_misses)::value_type;
+
   using total_evictions_value_type = typename decltype(stats.total_evictions)::value_type;
   using evictions_breakdown_value_type = typename decltype(stats.total_evictions)::value_type;
 
@@ -111,6 +116,11 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       stats.total_unrealised_hits.allocate(std::pair{type, cpu});
       stats.total_no_access_subblocks.allocate(std::pair{type, cpu});
       stats.total_evictions.allocate(std::pair{type, cpu});
+      stats.partial_hits.allocate(std::pair{type, cpu});
+      stats.partial_misses.allocate(std::pair{type, cpu});
+      stats.full_sim_partial_hits.allocate(std::pair{type, cpu});
+      stats.full_sim_partial_misses.allocate(std::pair{type, cpu});
+
       for (auto it = stats.evictions_breakdown.begin(); it != stats.evictions_breakdown.end(); it++) {
           it->allocate(std::pair{type, cpu});
       }
@@ -135,6 +145,11 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     total_no_access_subblocks_value_type full_sim_no_access_subblocks = 0;
     total_evictions_value_type full_sim_evictions = 0;
     std::vector<evictions_breakdown_value_type> evictions_breakdown(num_blocks, 0);
+    partial_hits_value_type total_partial_hits = 0;
+    partial_misses_value_type total_partial_misses = 0;
+    full_sim_partial_hits_value_type total_full_sim_partial_hits = 0;
+    full_sim_partial_misses_value_type total_full_sim_partial_misses = 0;
+
 
     for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE}) {
       total_hits += stats.hits.value_or(std::pair{type, cpu}, hits_value_type{});
@@ -151,6 +166,12 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       full_sim_unrealised_hits += stats.total_unrealised_hits.value_or(std::pair{type, cpu}, total_unrealised_hits_value_type{});
       full_sim_no_access_subblocks += stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
       full_sim_evictions += stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
+      total_partial_hits += stats.partial_hits.value_or(std::pair{type, cpu}, partial_hits_value_type{});
+      total_partial_misses += stats.partial_misses.value_or(std::pair{type, cpu}, partial_misses_value_type{});
+      total_full_sim_partial_hits += stats.full_sim_partial_hits.value_or(std::pair{type, cpu}, full_sim_partial_hits_value_type{});
+      total_full_sim_partial_misses += stats.full_sim_partial_misses.value_or(std::pair{type, cpu}, full_sim_partial_misses_value_type{});
+
+
       for (uint64_t i = 0; i < num_blocks; i++) {
           evictions_breakdown[i] += stats.evictions_breakdown[i].value_or(std::pair{type, cpu}, evictions_breakdown_value_type{});
       }
@@ -168,9 +189,13 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     fmt::format_string<std::string_view, std::string_view, int, int, int> subblock_access_fmtstr{
         "cpu{}->{} {:<12s} EVICTIONS: {:10d} TOTAL_EVICTIONS: {:10d} SUB_BLOCKS_UNACCESSED: {:10d} TOTAL_SUB_BLOCKS_UNACCESSED: {:10d}"};
 
+    fmt::format_string<std::string_view, std::string_view, int, int, int> partial_hitmiss_fmtstr{
+        "cpu{}->{} {:<12s} PARTIAL_HITS: {:10d} PARTIAL_MISSES: {:10d} FULL_SIM_PARTIAL_HITS: {:10d} FULL_SIM_PARTIAL_MISSES: {:10d}"};
+
     lines.push_back(fmt::format(hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_hits + total_misses, total_hits, total_misses, compulsory_misses, capacity_misses, conflict_misses, total_mshr_merge));
     lines.push_back(fmt::format(subblock_access_fmtstr, cpu, stats.name, "TOTAL", total_evictions, full_sim_evictions, no_access_subblocks, full_sim_no_access_subblocks));
     lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, "TOTAL", full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/float(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/float(full_sim_hits+full_sim_misses)));
+    lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_partial_hits, total_partial_misses, total_full_sim_partial_hits, total_full_sim_partial_misses));
     switch(num_blocks) {
         case 1:
             {
@@ -237,6 +262,11 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       total_unrealised_hits_value_type per_type_full_sim_unrealised_hits = stats.total_unrealised_hits.value_or(std::pair{type, cpu}, total_unrealised_hits_value_type{});
       total_evictions_value_type per_type_full_sim_evictions = stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
       total_no_access_subblocks_value_type per_type_full_sim_no_access_subblocks = stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
+      partial_hits_value_type per_type_partial_hits = stats.partial_hits.value_or(std::pair{type, cpu}, partial_hits_value_type{});
+      partial_misses_value_type per_type_partial_misses = stats.partial_misses.value_or(std::pair{type, cpu}, partial_misses_value_type{});
+      full_sim_partial_hits_value_type per_type_full_sim_partial_hits = stats.full_sim_partial_hits.value_or(std::pair{type, cpu}, full_sim_partial_hits_value_type{});
+      full_sim_partial_misses_value_type per_type_full_sim_partial_misses = stats.full_sim_partial_misses.value_or(std::pair{type, cpu}, full_sim_partial_misses_value_type{});
+
       conflict_misses_value_type per_type_conflict_misses = 0;
       if (ENABLE_MISS_BREAKDOWN) {
         per_type_capacity_misses -= per_type_compulsory_misses;
@@ -256,6 +286,9 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
                   per_type_unrealised_hits, per_type_full_sim_unrealised_hits,
                   float(per_type_total_hits + per_type_unrealised_hits)/float(per_type_total_hits+per_type_total_misses),
                   float(per_type_full_sim_hits + per_type_full_sim_unrealised_hits)/float(per_type_full_sim_hits+per_type_full_sim_misses)));
+      lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)),
+                per_type_partial_hits, per_type_partial_misses, per_type_full_sim_partial_hits, per_type_full_sim_partial_misses));
+
 
     lines.push_back(fmt::format("cpu{}->{} PREFETCH REQUESTED: {:10} ISSUED: {:10} USEFUL: {:10} USELESS: {:10}", cpu, stats.name, stats.pf_requested,
                                 stats.pf_issued, stats.pf_useful, stats.pf_useless));
