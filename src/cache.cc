@@ -98,13 +98,15 @@ auto CACHE::operator=(CACHE&& other) -> CACHE&
 
 CACHE::tag_lookup_type::tag_lookup_type(const request_type& req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
-      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me)
+      type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me),
+      reqs_merged(req.reqs_merged), byte_mask(req.byte_mask)
 {
 }
 
 CACHE::mshr_type::mshr_type(const tag_lookup_type& req, champsim::chrono::clock::time_point _time_enqueued)
     : address(req.address), v_address(req.v_address), ip(req.ip), instr_id(req.instr_id), cpu(req.cpu), type(req.type),
-      prefetch_from_this(req.prefetch_from_this), time_enqueued(_time_enqueued), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return)
+      prefetch_from_this(req.prefetch_from_this), time_enqueued(_time_enqueued), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return),
+      reqs_merged(req.reqs_merged), byte_mask(req.byte_mask)
 {
 }
 
@@ -276,7 +278,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
   cpu = handle_pkt.cpu;
-
+  fmt::print("[{}] {} address: {} byte_mask: {:#x} reqs_merged: {}\n", NAME, __func__, handle_pkt.address, handle_pkt.byte_mask, handle_pkt.reqs_merged);
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
   auto way = std::find_if(set_begin, set_end, [matcher = matches_address(handle_pkt.address)](const auto& x) { return x.valid && matcher(x); });
@@ -776,6 +778,9 @@ void CACHE::issue_translation(tag_lookup_type& q_entry) const
 
     fwd_pkt.instr_depend_on_me = q_entry.instr_depend_on_me;
     fwd_pkt.is_translated = true;
+
+    fwd_pkt.reqs_merged = q_entry.reqs_merged;
+    fwd_pkt.byte_mask = q_entry.byte_mask;
 
     q_entry.translate_issued = lower_translate->add_rq(fwd_pkt);
     if constexpr (champsim::debug_print) {

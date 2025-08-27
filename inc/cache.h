@@ -73,6 +73,9 @@ class CACHE : public champsim::operable
     bool is_translated;
     bool translate_issued = false;
 
+    uint64_t reqs_merged;
+    uint64_t byte_mask;
+
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
 
     champsim::chrono::clock::time_point event_cycle = champsim::chrono::clock::time_point::max();
@@ -90,6 +93,9 @@ public:
     champsim::address v_address;
     champsim::address ip;
     uint64_t instr_id;
+
+    uint64_t reqs_merged;
+    uint64_t byte_mask;
 
     struct returned_value {
       champsim::address data;

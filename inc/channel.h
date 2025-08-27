@@ -65,6 +65,8 @@ class channel
     champsim::address data{};
     uint64_t instr_id = 0;
     champsim::address ip{};
+    uint32_t reqs_merged = 1;
+    uint64_t byte_mask = 0;
 
     std::vector<uint64_t> instr_depend_on_me{};
   };
