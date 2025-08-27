@@ -93,6 +93,7 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
   auto* cache_block_size_option = app.add_option("-b,--cache-block-size", CACHE_BLOCK_SIZE, "The cache block size to be used.");
 
   CLI11_PARSE(app, argc, argv);
+  LOG2_CACHE_BLOCK_SIZE = champsim::lg2(CACHE_BLOCK_SIZE);
 
   const bool warmup_given = (warmup_instr_option->count() > 0) || (deprec_warmup_instr_option->count() > 0);
   const bool simulation_given = (sim_instr_option->count() > 0) || (deprec_sim_instr_option->count() > 0);
