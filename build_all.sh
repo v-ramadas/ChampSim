@@ -25,3 +25,6 @@ make
 
 config.sh L1D_num_ways_79_config.json
 make
+
+config.sh L1D_num_ways_128_config.json
+make
