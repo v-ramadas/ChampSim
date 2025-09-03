@@ -48,10 +48,6 @@ CACHE::CACHE(CACHE&& other)
 {
   pref_module_pimpl->bind(this);
   repl_module_pimpl->bind(this);
-  accesses_between_evictions.assign(this->NUM_SET * this->NUM_WAY * num_blocks, 0);
-  if (sim_stats.evictions_breakdown.size() != this->num_blocks) {
-      sim_stats.evictions_breakdown.assign(this->num_blocks, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
-  }
 }
 
 auto CACHE::operator=(CACHE&& other) -> CACHE&
@@ -99,14 +95,14 @@ auto CACHE::operator=(CACHE&& other) -> CACHE&
 CACHE::tag_lookup_type::tag_lookup_type(const request_type& req, bool local_pref, bool skip)
     : address(req.address), v_address(req.v_address), data(req.data), ip(req.ip), instr_id(req.instr_id), pf_metadata(req.pf_metadata), cpu(req.cpu),
       type(req.type), prefetch_from_this(local_pref), skip_fill(skip), is_translated(req.is_translated), instr_depend_on_me(req.instr_depend_on_me),
-      reqs_merged(req.reqs_merged), byte_mask(req.byte_mask)
+      num_requests(req.num_requests), byte_mask(req.byte_mask)
 {
 }
 
 CACHE::mshr_type::mshr_type(const tag_lookup_type& req, champsim::chrono::clock::time_point _time_enqueued)
     : address(req.address), v_address(req.v_address), ip(req.ip), instr_id(req.instr_id), cpu(req.cpu), type(req.type),
       prefetch_from_this(req.prefetch_from_this), time_enqueued(_time_enqueued), instr_depend_on_me(req.instr_depend_on_me), to_return(req.to_return),
-      reqs_merged(req.reqs_merged), byte_mask(req.byte_mask)
+      num_requests(req.num_requests), byte_mask(req.byte_mask)
 {
 }
 
@@ -165,6 +161,14 @@ auto CACHE::matches_address(champsim::address addr) const
   };
 }
 
+auto CACHE::matches_block_address(champsim::address addr) const
+{
+  return [match = addr.slice_upper(BLOCK_OFFSET_BITS), shamt = BLOCK_OFFSET_BITS](const auto& entry) {
+    return entry.address.slice_upper(shamt) == match;
+  };
+}
+
+
 template <typename T>
 champsim::address CACHE::module_address(const T& element) const
 {
@@ -172,81 +176,113 @@ champsim::address CACHE::module_address(const T& element) const
   return champsim::address{address.slice_upper(match_offset_bits ? champsim::data::bits{} : OFFSET_BITS)};
 }
 
+template <typename T>
+champsim::address CACHE::module_block_address(const T& element) const
+{
+  auto address = virtual_prefetch ? element.v_address : element.address;
+  return champsim::address{address.slice_upper(match_offset_bits ? champsim::data::bits{} : champsim::data::bits{LOG2_CACHE_BLOCK_SIZE})};
+}
+
+
 bool CACHE::handle_fill(const mshr_type& fill_mshr)
 {
   cpu = fill_mshr.cpu;
   // find victim
   auto [set_begin, set_end] = get_set_span(fill_mshr.address);
-  auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
-  if (way == set_end) {
-    way = std::next(set_begin, impl_find_victim(fill_mshr.cpu, fill_mshr.instr_id, get_set_index(fill_mshr.address), &*set_begin, fill_mshr.ip,
-                                                fill_mshr.address, fill_mshr.type));
-  }
-  assert(set_begin <= way);
-  assert(way <= set_end);
-  assert(way != set_end || fill_mshr.type != access_type::WRITE); // Writes may not bypass
-  const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier assertion
 
-  if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {} v_address: {} set: {} way: {} type: {} prefetch_metadata: {} cycle_enqueued: {} cycle: {}\n", NAME, __func__,
-               fill_mshr.instr_id, fill_mshr.address, fill_mshr.v_address, get_set_index(fill_mshr.address), way_idx,
-               access_type_names.at(champsim::to_underlying(fill_mshr.type)), fill_mshr.data_promise->pf_metadata,
-               (fill_mshr.time_enqueued.time_since_epoch()) / clock_period, (current_time.time_since_epoch()) / clock_period);
-  }
+  uint32_t metadata_thru = 0;
+  uint32_t num_blocks_filled = 0;
+  auto fill_blocks_mshr = fill_mshr;
+  fill_blocks_mshr.address = champsim::address{align_address(fill_blocks_mshr.address.to<uint64_t>(), BLOCK_SIZE)};
+  fill_blocks_mshr.v_address = champsim::address{align_address(fill_blocks_mshr.v_address.to<uint64_t>(), BLOCK_SIZE)};
+  while (num_blocks_filled < num_blocks) {
+    auto try_way = std::find_if(set_begin, set_end, [matcher = matches_block_address(fill_blocks_mshr.address)](const auto& x) { return x.valid && matcher(x); });
+    const auto hit = (try_way != set_end);
+    const auto set_idx = get_set_index(fill_blocks_mshr.address);
 
-  if (way != set_end && way->valid && way->dirty) {
-    request_type writeback_packet;
+    if (hit) {
+      // Discard the fetched block as the cache already has it
+      const auto way_idx = std::distance(set_begin, try_way);             // cast protected by earlier 
+      impl_replacement_cache_fill(fill_blocks_mshr.cpu, set_idx, way_idx, module_block_address(fill_blocks_mshr), fill_blocks_mshr.ip, champsim::address{},
+                                  fill_blocks_mshr.type);
+    } else {
+      auto way = std::find_if_not(set_begin, set_end, [](auto x) { return x.valid; });
+      if (way == set_end) {
+        way = std::next(set_begin, impl_find_victim(fill_blocks_mshr.cpu, fill_blocks_mshr.instr_id, get_set_index(fill_blocks_mshr.address), &*set_begin, fill_blocks_mshr.ip,
+                                                    fill_blocks_mshr.address, fill_blocks_mshr.type));
+      }
+      assert(set_begin <= way);
+      assert(way <= set_end);
+      assert(way != set_end || fill_blocks_mshr.type != access_type::WRITE); // Writes may not bypass
+      const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier assertion
+    
+      if constexpr (champsim::debug_print) {
+        fmt::print("[{}] {} instr_id: {} address: {} v_address: {} set: {} way: {} byte_mask: {:#x} num_requests: {} type: {} prefetch_metadata: {} cycle_enqueued: {} cycle: {}\n", NAME, __func__,
+                   fill_blocks_mshr.instr_id, fill_blocks_mshr.address, fill_blocks_mshr.v_address, get_set_index(fill_blocks_mshr.address), way_idx,
+                   fill_blocks_mshr.byte_mask, fill_blocks_mshr.num_requests,
+                   access_type_names.at(champsim::to_underlying(fill_blocks_mshr.type)), fill_blocks_mshr.data_promise->pf_metadata,
+                   (fill_blocks_mshr.time_enqueued.time_since_epoch()) / clock_period, (current_time.time_since_epoch()) / clock_period);
+      }
+          
+      if (way != set_end && way->valid && way->dirty) {
+        request_type writeback_packet;
+    
+        writeback_packet.cpu = fill_blocks_mshr.cpu;
+        writeback_packet.address = way->address;
+        writeback_packet.data = way->data;
+        writeback_packet.instr_id = fill_blocks_mshr.instr_id;
+        writeback_packet.ip = champsim::address{};
+        writeback_packet.type = access_type::WRITE;
+        writeback_packet.pf_metadata = way->pf_metadata;
+        writeback_packet.response_requested = false;
+    
+        if constexpr (champsim::debug_print) {
+          fmt::print("[{}] {} evict address: {} v_address: {} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address, writeback_packet.v_address,
+                     fill_blocks_mshr.data_promise->pf_metadata);
+        }
 
-    writeback_packet.cpu = fill_mshr.cpu;
-    writeback_packet.address = way->address;
-    writeback_packet.data = way->data;
-    writeback_packet.instr_id = fill_mshr.instr_id;
-    writeback_packet.ip = champsim::address{};
-    writeback_packet.type = access_type::WRITE;
-    writeback_packet.pf_metadata = way->pf_metadata;
-    writeback_packet.response_requested = false;
-
-    if constexpr (champsim::debug_print) {
-      fmt::print("[{}] {} evict address: {:#x} v_address: {:#x} prefetch_metadata: {}\n", NAME, __func__, writeback_packet.address, writeback_packet.v_address,
-                 fill_mshr.data_promise->pf_metadata);
+        auto success = lower_level->add_wq(writeback_packet);
+        if (!success) {
+          fmt::print("[{}] {} failed adding it to lower level\n", NAME, __func__);
+          return false;
+        }
+      }
+    
+      champsim::address evicting_address{};
+      bool evicted = false;
+      if (way != set_end && way->valid) {
+        evicting_address = module_address(*way);
+        evicted = true;
+      }
+    
+      if (evicted) {
+        register_sector_eviction(way->address, fill_blocks_mshr, way_idx);
+        sim_stats.evictions.increment(std::pair{fill_blocks_mshr.type, fill_blocks_mshr.cpu});
+        sim_stats.total_evictions.increment(std::pair{fill_blocks_mshr.type, fill_blocks_mshr.cpu});
+      }
+    
+      metadata_thru = impl_prefetcher_cache_fill(module_address(fill_blocks_mshr), get_set_index(fill_blocks_mshr.address), way_idx,
+                                                      (fill_blocks_mshr.type == access_type::PREFETCH), evicting_address, fill_blocks_mshr.data_promise->pf_metadata);
+      impl_replacement_cache_fill(fill_blocks_mshr.cpu, get_set_index(fill_blocks_mshr.address), way_idx, module_address(fill_blocks_mshr), fill_blocks_mshr.ip, evicting_address,
+                                  fill_blocks_mshr.type);
+    
+    
+      if (way != set_end) {
+        if (way->valid && way->prefetch) {
+          ++sim_stats.pf_useless;
+        }
+    
+        if (fill_blocks_mshr.type == access_type::PREFETCH) {
+          ++sim_stats.pf_fill;
+        }
+    
+        *way = fill_block(fill_blocks_mshr, metadata_thru);
+      }
     }
 
-
-    auto success = lower_level->add_wq(writeback_packet);
-    if (!success) {
-      return false;
-    }
-  }
-
-  champsim::address evicting_address{};
-  bool evicted = false;
-  if (way != set_end && way->valid) {
-    evicting_address = module_address(*way);
-    evicted = true;
-  }
-
-  if (evicted) {
-    register_sector_eviction(way->address, fill_mshr, way_idx);
-    sim_stats.evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-    sim_stats.total_evictions.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-  }
-
-  auto metadata_thru = impl_prefetcher_cache_fill(module_address(fill_mshr), get_set_index(fill_mshr.address), way_idx,
-                                                  (fill_mshr.type == access_type::PREFETCH), evicting_address, fill_mshr.data_promise->pf_metadata);
-  impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, evicting_address,
-                              fill_mshr.type);
-
-
-  if (way != set_end) {
-    if (way->valid && way->prefetch) {
-      ++sim_stats.pf_useless;
-    }
-
-    if (fill_mshr.type == access_type::PREFETCH) {
-      ++sim_stats.pf_fill;
-    }
-
-    *way = fill_block(fill_mshr, metadata_thru);
+    ++num_blocks_filled;
+    fill_blocks_mshr.address += CACHE_BLOCK_SIZE;
+    fill_blocks_mshr.v_address += CACHE_BLOCK_SIZE;
   }
 
   // COLLECT STATS
@@ -255,16 +291,22 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   sim_stats.mshr_return.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
 
   //Update utilization structs now
-  uint64_t aligned_mshr_address = (fill_mshr.address.to<uint64_t>()/BLOCK_SIZE)*BLOCK_SIZE;
-  if (mshr_accesses_between_evictions.find(aligned_mshr_address) != mshr_accesses_between_evictions.end()) {
+  uint64_t mshr_address = (fill_mshr.address.to<uint64_t>()/BLOCK_SIZE)*BLOCK_SIZE;
+  if (mshr_accesses_between_evictions.find(mshr_address) != mshr_accesses_between_evictions.end()) {
       // Found list of addresses
-      for (auto it = mshr_accesses_between_evictions[aligned_mshr_address].begin();
-             it != mshr_accesses_between_evictions[aligned_mshr_address].end();) {
+      for (auto it = mshr_accesses_between_evictions[mshr_address].begin();
+             it != mshr_accesses_between_evictions[mshr_address].end();) {
+
+        auto way = std::find_if(set_begin, set_end, [matcher = matches_block_address((*it))](const auto& x) { return x.valid && matcher(x); });
+        assert(set_begin <= way);
+        assert(way <= set_end);
+        assert(way != set_end);
+        const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier 
         register_sector_access(*it, way_idx);
-        it = mshr_accesses_between_evictions[aligned_mshr_address].erase(it);
+        it = mshr_accesses_between_evictions[mshr_address].erase(it);
       }
-      if (mshr_accesses_between_evictions[aligned_mshr_address].size() == 0)
-          mshr_accesses_between_evictions.erase(aligned_mshr_address);
+      if (mshr_accesses_between_evictions[mshr_address].size() == 0)
+          mshr_accesses_between_evictions.erase(mshr_address);
   }
 
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
@@ -278,49 +320,84 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
 {
   cpu = handle_pkt.cpu;
-  fmt::print("[{}] {} address: {} byte_mask: {:#x} reqs_merged: {}\n", NAME, __func__, handle_pkt.address, handle_pkt.byte_mask, handle_pkt.reqs_merged);
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
-  auto way = std::find_if(set_begin, set_end, [matcher = matches_address(handle_pkt.address)](const auto& x) { return x.valid && matcher(x); });
-  const auto hit = (way != set_end);
-  const auto useful_prefetch = (hit && way->prefetch && !handle_pkt.prefetch_from_this);
+  uint32_t num_blocks_visited = 0;
+  bool hit = true;
+  bool useful_prefetch = true;
+  uint32_t metadata_thru = 0;
+  std::vector<uint64_t> ways;
+  champsim::address block_address = champsim::address{align_address(handle_pkt.address.to<uint64_t>(), BLOCK_SIZE)};
+  
+  while(num_blocks_visited < num_blocks) {
+    auto way = std::find_if(set_begin, set_end, [matcher = matches_block_address(block_address)](const auto& x) { return x.valid && matcher(x); });
+    uint64_t block_mask = (1ULL << CACHE_BLOCK_SIZE) - 1;
+    auto way_accessed = (((handle_pkt.byte_mask >> (num_blocks_visited*CACHE_BLOCK_SIZE)) & block_mask) == block_mask);
+    if (way_accessed) {
+      ways.push_back(std::distance(set_begin, way));
+      const auto block_hit = (way != set_end);
+      hit &= block_hit;
+      useful_prefetch &= (block_hit && way->prefetch && !handle_pkt.prefetch_from_this);
+    
+      if constexpr (champsim::debug_print) {
+        fmt::print("[{}] {} instr_id: {} address: {} v_address: {} data: {} set: {} way: {} byte_mask: {:#x} num_requests: {} ({}) type: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
+                   block_address, handle_pkt.v_address, handle_pkt.data, get_set_index(block_address), std::distance(set_begin, way),
+                   handle_pkt.byte_mask, handle_pkt.num_requests,
+                   block_hit ? "HIT" : "MISS", access_type_names.at(champsim::to_underlying(handle_pkt.type)), current_time.time_since_epoch() / clock_period);
+      }
 
-  if constexpr (champsim::debug_print) {
-    fmt::print("[{}] {} instr_id: {} address: {} v_address: {} data: {} set: {} way: {} ({}) type: {} cycle: {}\n", NAME, __func__, handle_pkt.instr_id,
-               handle_pkt.address, handle_pkt.v_address, handle_pkt.data, get_set_index(handle_pkt.address), std::distance(set_begin, way),
-               hit ? "HIT" : "MISS", access_type_names.at(champsim::to_underlying(handle_pkt.type)), current_time.time_since_epoch() / clock_period);
+      metadata_thru = handle_pkt.pf_metadata;
+      if (should_activate_prefetcher(handle_pkt)) {
+        metadata_thru = impl_prefetcher_cache_operate(module_address(handle_pkt), handle_pkt.ip, block_hit, useful_prefetch, handle_pkt.type, metadata_thru);
+      }
+
+      if (block_hit) {
+          sim_stats.partial_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+      } else {
+          uint64_t mshr_address = handle_pkt.address.to<uint64_t>();
+          uint64_t addr = (mshr_address/BLOCK_SIZE)*BLOCK_SIZE;
+          if (mshr_accesses_between_evictions.find(addr) != mshr_accesses_between_evictions.end())
+            sim_stats.partial_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+          else 
+            sim_stats.partial_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+      }
+    }
+
+    num_blocks_visited++;
+    block_address += CACHE_BLOCK_SIZE;
   }
-
-  auto metadata_thru = handle_pkt.pf_metadata;
-  if (should_activate_prefetcher(handle_pkt)) {
-    metadata_thru = impl_prefetcher_cache_operate(module_address(handle_pkt), handle_pkt.ip, hit, useful_prefetch, handle_pkt.type, metadata_thru);
-  }
-
-  // update replacement policy
-  const auto way_idx = std::distance(set_begin, way);
-  impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), way_idx, module_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
-                                hit);
+  
+  assert(ways.size() != 0);
 
   if (hit) {
     sim_stats.hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
     sim_stats.total_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
 
     if (ENABLE_MISS_BREAKDOWN) check_capacity_miss(handle_pkt);
-    register_sector_access(handle_pkt, way_idx);
     
-    response_type response{handle_pkt.address, handle_pkt.v_address, way->data, metadata_thru, handle_pkt.instr_depend_on_me};
+    response_type response{handle_pkt.address, handle_pkt.v_address, std::next(set_begin, ways[0])->data, metadata_thru, handle_pkt.instr_depend_on_me};
     for (auto* ret : handle_pkt.to_return) {
       ret->push_back(response);
     }
 
-    way->dirty |= (handle_pkt.type == access_type::WRITE);
+    for (auto way_idx: ways) {
+      auto way = std::next(set_begin, way_idx);
+      if (handle_pkt.type == access_type::WRITE) {
+        way->dirty |= (handle_pkt.type == access_type::WRITE);
+      }
 
-    // update prefetch stats and reset prefetch bit
-    if (useful_prefetch) {
-      ++sim_stats.pf_useful;
-      way->prefetch = false;
+      block_address = way->address;
+
+      register_sector_access(handle_pkt, way_idx);
+      impl_update_replacement_state(handle_pkt.cpu, get_set_index(block_address), way_idx, module_block_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
+                                hit);
+
+      // update prefetch stats and reset prefetch bit
+      if (useful_prefetch) {
+        ++sim_stats.pf_useful;
+        way->prefetch = false;
+      }
     }
-
 
     /*if (num_blocks > 1) {
       uint64_t addr = (handle_pkt.address.to<uint64_t>()/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
@@ -338,16 +415,18 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     }*/
   } else {
     // Request missed in cache. Add it to mshr_accesses_between_evicitons so that we can use this info during handle_fill to mark which subblocks were accessed
-
     uint64_t mshr_address = handle_pkt.address.to<uint64_t>();
     uint64_t addr = (mshr_address/BLOCK_SIZE)*BLOCK_SIZE;
-    if (mshr_accesses_between_evictions.find(addr) == mshr_accesses_between_evictions.end()) {
+    if (mshr_accesses_between_evictions.find(addr) == mshr_accesses_between_evictions.end())
         mshr_accesses_between_evictions.emplace(addr, std::vector<champsim::address>{handle_pkt.address});
-    } else {
+    else 
         mshr_accesses_between_evictions[addr].push_back(handle_pkt.address) ;
-    }
   }
 
+  if (NAME.find(std::string("TLB")) == std::string::npos) {
+      assert(handle_pkt.num_requests <= 16);
+      sim_stats.request_width_breakdown[handle_pkt.num_requests-1].increment(std::pair{handle_pkt.type, handle_pkt.cpu});
+  }
   return hit;
 }
 
@@ -404,7 +483,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
 
     // COLLECT STATS
     sim_stats.mshr_merge.increment(std::pair{to_allocate.type, to_allocate.cpu});
-
     *mshr_entry = mshr_type::merge(*mshr_entry, to_allocate);
   } else {
     if (mshr_full) { // not enough MSHR resource
@@ -779,7 +857,7 @@ void CACHE::issue_translation(tag_lookup_type& q_entry) const
     fwd_pkt.instr_depend_on_me = q_entry.instr_depend_on_me;
     fwd_pkt.is_translated = true;
 
-    fwd_pkt.reqs_merged = q_entry.reqs_merged;
+    fwd_pkt.num_requests = q_entry.num_requests;
     fwd_pkt.byte_mask = q_entry.byte_mask;
 
     q_entry.translate_issued = lower_translate->add_rq(fwd_pkt);
@@ -944,8 +1022,12 @@ void CACHE::initialize()
 {
   impl_prefetcher_initialize();
   impl_initialize_replacement();
-  if (sim_stats.evictions_breakdown.size() != this->num_blocks) {
-      sim_stats.evictions_breakdown.assign(this->num_blocks, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  if (sim_stats.evictions_breakdown.size() != (this->num_blocks+1)) {
+      sim_stats.evictions_breakdown.assign(this->num_blocks+1, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  }
+
+  if (sim_stats.request_width_breakdown.size() != 16) {
+      sim_stats.request_width_breakdown.assign(16, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
   }
 }
 
@@ -958,23 +1040,33 @@ void CACHE::begin_phase()
   new_sim_stats.name = NAME;
  
   // Stats to be carried over into next phase
-  new_sim_stats.total_hits = sim_stats.total_hits;
-  new_sim_stats.total_misses = sim_stats.total_misses;
-  new_sim_stats.compulsory_misses = sim_stats.compulsory_misses;
-  new_sim_stats.capacity_misses = sim_stats.capacity_misses;
-  new_sim_stats.total_unrealised_hits = sim_stats.total_unrealised_hits;
-  new_sim_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
-  new_sim_stats.total_evictions = sim_stats.total_evictions;
-  new_sim_stats.mshr_merge = sim_stats.mshr_merge;
-  new_sim_stats.mshr_return = sim_stats.mshr_return;
-  new_sim_stats.evictions_breakdown = sim_stats.evictions_breakdown;
+  //new_sim_stats.total_hits = sim_stats.total_hits;
+  //new_sim_stats.total_misses = sim_stats.total_misses;
+  //new_sim_stats.compulsory_misses = sim_stats.compulsory_misses;
+  //new_sim_stats.capacity_misses = sim_stats.capacity_misses;
+  //new_sim_stats.total_unrealised_hits = sim_stats.total_unrealised_hits;
+  //new_sim_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
+  //new_sim_stats.total_evictions = sim_stats.total_evictions;
+  //new_sim_stats.mshr_merge = sim_stats.mshr_merge;
+  //new_sim_stats.mshr_return = sim_stats.mshr_return;
+  //new_sim_stats.evictions_breakdown = sim_stats.evictions_breakdown;
   // End copying
 
   roi_stats = new_roi_stats;
   sim_stats = new_sim_stats;
 
+  // Set this->CACHE_BLOCK_SIZE to BLOCK_SIZE for all non-L1D caches
+  if (NAME.find(std::string("L1D")) == std::string::npos) {
+    this->CACHE_BLOCK_SIZE = BLOCK_SIZE;
+    this->LOG2_CACHE_BLOCK_SIZE = LOG2_BLOCK_SIZE;
+  } else {
+    this->CACHE_BLOCK_SIZE = ADAPTIVE_BLOCK_SIZE;
+    this->LOG2_CACHE_BLOCK_SIZE = champsim::lg2(ADAPTIVE_BLOCK_SIZE) ;
+  }
+
   num_blocks = (BLOCK_SIZE/CACHE_BLOCK_SIZE);
-  if (num_blocks > 1) {
+  //if (num_blocks > 1) {
+  {
     /*MAX_NUM_WAY = this->NUM_WAY * num_blocks;
     if (ghost_cache.size() != this->NUM_SET) {
         ghost_cache.resize(this->NUM_SET);
@@ -984,9 +1076,14 @@ void CACHE::begin_phase()
         accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * num_blocks, 0);
     }
 
-    if (sim_stats.evictions_breakdown.size() != this->num_blocks) {
-        sim_stats.evictions_breakdown.assign(this->num_blocks, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+    if (sim_stats.evictions_breakdown.size() != (this->num_blocks+1)) {
+        sim_stats.evictions_breakdown.assign(this->num_blocks+1, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
     }
+
+    if (sim_stats.request_width_breakdown.size() != 16) {
+        sim_stats.request_width_breakdown.assign(16, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+    }
+
   }
 
   for (auto* ul : upper_levels) {
@@ -995,6 +1092,8 @@ void CACHE::begin_phase()
     ul->roi_stats = ul_new_roi_stats;
     ul->sim_stats = ul_new_sim_stats;
   }
+
+  BLOCK_OFFSET_BITS = champsim::data::bits{LOG2_CACHE_BLOCK_SIZE};
 }
 
 void CACHE::end_phase(unsigned finished_cpu)
@@ -1026,6 +1125,9 @@ void CACHE::end_phase(unsigned finished_cpu)
   roi_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
   roi_stats.total_evictions = sim_stats.total_evictions;
   roi_stats.evictions_breakdown = sim_stats.evictions_breakdown;
+  roi_stats.partial_hits = sim_stats.partial_hits;
+  roi_stats.partial_misses = sim_stats.partial_misses;
+  roi_stats.request_width_breakdown = sim_stats.request_width_breakdown;
   // End copying
 
   for (auto* ul : upper_levels) {
@@ -1161,11 +1263,7 @@ void CACHE::register_sector_eviction(const champsim::address& addr, const mshr_t
         accesses_between_evictions[idx] = 0;
       }
 
-      // If no subblock accessed during eviction, then this means that the line was allocated but got evicted before fill
-      // Happens sometimes during warmup
-      if (subblocks_accessed == 0) subblocks_accessed = 1;
-
       // Update subblocks_accessed - 1 as arrays start at 0
-      sim_stats.evictions_breakdown[subblocks_accessed-1].increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+      sim_stats.evictions_breakdown[subblocks_accessed].increment(std::pair{fill_mshr.type, fill_mshr.cpu});
     }
 }

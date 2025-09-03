@@ -73,15 +73,15 @@ class CACHE : public champsim::operable
     bool is_translated;
     bool translate_issued = false;
 
-    uint64_t reqs_merged;
-    uint64_t byte_mask;
-
     uint8_t asid[2] = {std::numeric_limits<uint8_t>::max(), std::numeric_limits<uint8_t>::max()};
 
     champsim::chrono::clock::time_point event_cycle = champsim::chrono::clock::time_point::max();
 
     std::vector<uint64_t> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
+
+    uint32_t num_requests;
+    uint64_t byte_mask;
 
     explicit tag_lookup_type(request_type req) : tag_lookup_type(req, false, false) {}
     tag_lookup_type(const request_type& req, bool local_pref, bool skip);
@@ -93,9 +93,6 @@ public:
     champsim::address v_address;
     champsim::address ip;
     uint64_t instr_id;
-
-    uint64_t reqs_merged;
-    uint64_t byte_mask;
 
     struct returned_value {
       champsim::address data;
@@ -113,6 +110,9 @@ public:
 
     std::vector<uint64_t> instr_depend_on_me{};
     std::vector<std::deque<response_type>*> to_return{};
+
+    uint64_t num_requests;
+    uint64_t byte_mask;
 
     mshr_type(const tag_lookup_type& req, champsim::chrono::clock::time_point _time_enqueued);
     static mshr_type merge(mshr_type predecessor, mshr_type successor);
@@ -136,6 +136,7 @@ private:
   using set_type = std::vector<BLOCK>;
 
   std::pair<set_type::iterator, set_type::iterator> get_set_span(champsim::address address);
+  std::vector<uint64_t> get_way_span(tag_lookup_type& handle_pkt);
   [[nodiscard]] std::pair<set_type::const_iterator, set_type::const_iterator> get_set_span(champsim::address address) const;
   [[nodiscard]] long get_set_index(champsim::address address) const;
 
@@ -148,7 +149,11 @@ private:
   template <typename T>
   champsim::address module_address(const T& element) const;
 
+  template <typename T>
+  champsim::address module_block_address(const T& element) const;
+
   auto matches_address(champsim::address address) const;
+  auto matches_block_address(champsim::address address) const;
   std::pair<mshr_type, request_type> mshr_and_forward_packet(const tag_lookup_type& handle_pkt);
 
   std::deque<tag_lookup_type> internal_PQ{};
@@ -162,6 +167,8 @@ private:
   std::vector<uint64_t> accesses_between_evictions;
   std::map<uint64_t, std::vector<champsim::address>> mshr_accesses_between_evictions;
   std::vector<std::vector<uint64_t>> infinite_cache;
+  unsigned CACHE_BLOCK_SIZE;
+  unsigned LOG2_CACHE_BLOCK_SIZE;
   unsigned num_blocks = 1;
   uint64_t MAX_NUM_WAY;
   // End of new structures and fields
@@ -178,6 +185,7 @@ public:
   champsim::chrono::clock::duration HIT_LATENCY;
   champsim::chrono::clock::duration FILL_LATENCY;
   champsim::data::bits OFFSET_BITS;
+  champsim::data::bits BLOCK_OFFSET_BITS;
   set_type block{static_cast<typename set_type::size_type>(NUM_SET * NUM_WAY)};
   champsim::bandwidth::maximum_type MAX_TAG, MAX_FILL;
   bool prefetch_as_load;
