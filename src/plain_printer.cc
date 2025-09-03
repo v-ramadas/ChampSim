@@ -130,7 +130,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     }
   }
 
-  int num_blocks = int(stats.evictions_breakdown.size()-1);
+  int num_sectors = int(stats.evictions_breakdown.size()-1);
 
   std::vector<std::string> lines{};
   for (auto cpu : cpus) {
@@ -149,7 +149,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     total_unrealised_hits_value_type full_sim_unrealised_hits = 0;
     total_no_access_subblocks_value_type full_sim_no_access_subblocks = 0;
     total_evictions_value_type full_sim_evictions = 0;
-    std::vector<evictions_breakdown_value_type> evictions_breakdown(num_blocks+1, 0);
+    std::vector<evictions_breakdown_value_type> evictions_breakdown(num_sectors+1, 0);
     std::vector<request_width_breakdown_value_type> request_width_breakdown(16, 0);
     partial_hits_value_type total_partial_hits = 0;
     partial_misses_value_type total_partial_misses = 0;
@@ -174,7 +174,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       total_partial_misses += stats.partial_misses.value_or(std::pair{type, cpu}, partial_misses_value_type{});
       total_requests_merged += stats.requests_merged.value_or(std::pair{type, cpu}, requests_merged_value_type{});
 
-      for (int i = 0; i < num_blocks + 1; i++) {
+      for (int i = 0; i < num_sectors + 1; i++) {
           evictions_breakdown[i] += stats.evictions_breakdown[i].value_or(std::pair{type, cpu}, evictions_breakdown_value_type{});
       }
 
@@ -202,7 +202,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     lines.push_back(fmt::format(subblock_access_fmtstr, cpu, stats.name, "TOTAL", total_evictions, full_sim_evictions, no_access_subblocks, full_sim_no_access_subblocks));
     lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, "TOTAL", full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/float(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/float(full_sim_hits+full_sim_misses)));
     lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_requests_merged, total_partial_hits, total_partial_misses));
-    switch(num_blocks) {
+    switch(num_sectors) {
         case 1:
             {
                 fmt::format_string<std::string_view, std::string_view, int, int, int, int> evictions_breakdown_fmtstr{

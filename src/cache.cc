@@ -426,7 +426,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   sim_stats.requests_merged.allocate(std::pair{handle_pkt.type, handle_pkt.cpu}); 
   sim_stats.requests_merged.set(std::pair{handle_pkt.type, handle_pkt.cpu}, 
       sim_stats.requests_merged.at(std::pair{handle_pkt.type, handle_pkt.cpu}) + handle_pkt.num_requests); 
-  auto num_words_accessed = __builtin_popcountl(handle_pkt.byte_mask)/8; 
+  auto num_words_accessed = __builtin_popcountl(handle_pkt.byte_mask)/SECTOR_SIZE; 
   sim_stats.request_width_breakdown[num_words_accessed-1].increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   return hit;
 }
@@ -1023,12 +1023,12 @@ void CACHE::initialize()
 {
   impl_prefetcher_initialize();
   impl_initialize_replacement();
-  if (sim_stats.evictions_breakdown.size() != (this->num_blocks+1)) {
-      sim_stats.evictions_breakdown.assign(this->num_blocks+1, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  if (sim_stats.evictions_breakdown.size() != (this->num_sectors+1)) {
+      sim_stats.evictions_breakdown.assign(this->num_sectors+1, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
   }
 
-  if (sim_stats.request_width_breakdown.size() != 16) {
-      sim_stats.request_width_breakdown.assign(16, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  if (sim_stats.request_width_breakdown.size() != this->num_sectors) {
+      sim_stats.request_width_breakdown.assign(this->num_sectors, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
   }
 }
 
@@ -1066,27 +1066,21 @@ void CACHE::begin_phase()
   }
 
   num_blocks = (BLOCK_SIZE/CACHE_BLOCK_SIZE);
-  //if (num_blocks > 1) {
-  {
-    /*MAX_NUM_WAY = this->NUM_WAY * num_blocks;
-    if (ghost_cache.size() != this->NUM_SET) {
-        ghost_cache.resize(this->NUM_SET);
-    }*/
-    
-    if (accesses_between_evictions.size() != this->NUM_SET*this->NUM_WAY * num_blocks) {
-        accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * num_blocks, 0);
-    }
-
-    if (sim_stats.evictions_breakdown.size() != (this->num_blocks+1)) {
-        sim_stats.evictions_breakdown.assign(this->num_blocks+1, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
-    }
-
-    if (sim_stats.request_width_breakdown.size() != 16) {
-        sim_stats.request_width_breakdown.assign(16, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
-    }
-
+  /*MAX_NUM_WAY = this->NUM_WAY * num_blocks;
+  if (ghost_cache.size() != this->NUM_SET) {
+      ghost_cache.resize(this->NUM_SET);
+  }*/
+  
+  if (accesses_between_evictions.size() != this->NUM_SET*this->NUM_WAY * num_sectors) {
+      accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * num_sectors, 0);
   }
-
+  if (sim_stats.evictions_breakdown.size() != (this->num_sectors+1)) {
+      sim_stats.evictions_breakdown.assign(this->num_sectors+1, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  }
+  if (sim_stats.request_width_breakdown.size() != this->num_sectors) {
+      sim_stats.request_width_breakdown.assign(this->num_sectors, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
+  }
+  
   for (auto* ul : upper_levels) {
     channel_type::stats_type ul_new_roi_stats;
     channel_type::stats_type ul_new_sim_stats;
@@ -1235,36 +1229,29 @@ bool CACHE::check_capacity_miss(const tag_lookup_type& handle_pkt) {
 }
 
 void CACHE::register_sector_access(const tag_lookup_type& handle_pkt, uint64_t way_idx) {
-    if(num_blocks > 1) {
-      uint64_t word_offset = (((handle_pkt.address.to<uint64_t>()/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE) % BLOCK_SIZE)/CACHE_BLOCK_SIZE;
+      uint64_t word_offset = (((handle_pkt.address.to<uint64_t>()/8)*SECTOR_SIZE) % BLOCK_SIZE)/SECTOR_SIZE;
       auto cache_line_idx = (get_set_index(handle_pkt.address)*this->NUM_WAY + way_idx);
       accesses_between_evictions[(cache_line_idx * num_blocks) + word_offset] = 1;
-    }
 }
 
 void CACHE::register_sector_access(const champsim::address address, uint64_t way_idx) {
-    if(num_blocks > 1) {
-      uint64_t word_offset = (align_address(address.to<uint64_t>(), CACHE_BLOCK_SIZE) % BLOCK_SIZE)/CACHE_BLOCK_SIZE;
+      uint64_t word_offset = (align_address(address.to<uint64_t>(), SECTOR_SIZE) % BLOCK_SIZE)/SECTOR_SIZE;
       auto cache_line_idx = (get_set_index(address)*this->NUM_WAY + way_idx);
       accesses_between_evictions[(cache_line_idx * num_blocks) + word_offset] = 1;
-    }
 }
 
 void CACHE::register_sector_eviction(const champsim::address& addr, const mshr_type& fill_mshr, uint64_t way_idx) {
-    if (num_blocks > 1) {
-      auto cache_line_idx = (get_set_index(addr)*this->NUM_WAY + way_idx);
-      uint64_t subblocks_accessed = num_blocks;
-      for (unsigned word_idx = 0; word_idx < num_blocks; word_idx++) {
-        if (accesses_between_evictions[(cache_line_idx*num_blocks) + word_idx] == 0) {
-          sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-          sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-          subblocks_accessed--;
-        }
-        uint64_t idx = (cache_line_idx*num_blocks) + word_idx;
-        accesses_between_evictions[idx] = 0;
-      }
-
-      // Update subblocks_accessed - 1 as arrays start at 0
-      sim_stats.evictions_breakdown[subblocks_accessed].increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+  auto cache_line_idx = (get_set_index(addr)*this->NUM_WAY + way_idx);
+  uint64_t subblocks_accessed = num_sectors;
+  for (unsigned word_idx = 0; word_idx < num_sectors; word_idx++) {
+    if (accesses_between_evictions[(cache_line_idx*num_sectors) + word_idx] == 0) {
+      sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+      sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+      subblocks_accessed--;
     }
+    uint64_t idx = (cache_line_idx*num_sectors) + word_idx;
+    accesses_between_evictions[idx] = 0;
+  }
+  // Update subblocks_accessed - 1 as arrays start at 0
+  sim_stats.evictions_breakdown[subblocks_accessed].increment(std::pair{fill_mshr.type, fill_mshr.cpu});
 }

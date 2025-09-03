@@ -171,6 +171,8 @@ private:
   unsigned LOG2_CACHE_BLOCK_SIZE;
   unsigned num_blocks = 1;
   uint64_t MAX_NUM_WAY;
+  const unsigned SECTOR_SIZE = 8;
+  const unsigned num_sectors = BLOCK_SIZE/SECTOR_SIZE;
   // End of new structures and fields
 
 public:
