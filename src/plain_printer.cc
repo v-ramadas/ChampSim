@@ -81,11 +81,14 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
   using total_no_access_subblocks_value_type = typename decltype(stats.total_no_access_subblocks)::value_type;
   using total_hits_value_type = typename decltype(stats.total_hits)::value_type;
   using total_misses_value_type = typename decltype(stats.total_misses)::value_type;
+  using partial_hits_value_type = typename decltype(stats.partial_hits)::value_type;
+  using partial_misses_value_type = typename decltype(stats.partial_misses)::value_type;
+
   using total_evictions_value_type = typename decltype(stats.total_evictions)::value_type;
   using evictions_breakdown_value_type = typename decltype(stats.total_evictions)::value_type;
+  using request_width_breakdown_value_type = typename decltype(stats.total_evictions)::value_type;
 
   std::vector<std::size_t> cpus;
-  uint64_t num_blocks = stats.evictions_breakdown.size();
 
   // build a vector of all existing cpus
   auto stat_keys = {stats.hits.get_keys(), stats.misses.get_keys(), stats.mshr_merge.get_keys(), stats.mshr_return.get_keys()};
@@ -111,11 +114,21 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       stats.total_unrealised_hits.allocate(std::pair{type, cpu});
       stats.total_no_access_subblocks.allocate(std::pair{type, cpu});
       stats.total_evictions.allocate(std::pair{type, cpu});
+      stats.partial_hits.allocate(std::pair{type, cpu});
+      stats.partial_misses.allocate(std::pair{type, cpu});
+
       for (auto it = stats.evictions_breakdown.begin(); it != stats.evictions_breakdown.end(); it++) {
           it->allocate(std::pair{type, cpu});
       }
+
+      for (auto it = stats.request_width_breakdown.begin(); it != stats.request_width_breakdown.end(); it++) {
+          it->allocate(std::pair{type, cpu});
+      }
+
     }
   }
+
+  int num_blocks = int(stats.evictions_breakdown.size()-1);
 
   std::vector<std::string> lines{};
   for (auto cpu : cpus) {
@@ -134,7 +147,11 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     total_unrealised_hits_value_type full_sim_unrealised_hits = 0;
     total_no_access_subblocks_value_type full_sim_no_access_subblocks = 0;
     total_evictions_value_type full_sim_evictions = 0;
-    std::vector<evictions_breakdown_value_type> evictions_breakdown(num_blocks, 0);
+    std::vector<evictions_breakdown_value_type> evictions_breakdown(num_blocks+1, 0);
+    std::vector<request_width_breakdown_value_type> request_width_breakdown(16, 0);
+    partial_hits_value_type total_partial_hits = 0;
+    partial_misses_value_type total_partial_misses = 0;
+
 
     for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE}) {
       total_hits += stats.hits.value_or(std::pair{type, cpu}, hits_value_type{});
@@ -151,8 +168,16 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       full_sim_unrealised_hits += stats.total_unrealised_hits.value_or(std::pair{type, cpu}, total_unrealised_hits_value_type{});
       full_sim_no_access_subblocks += stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
       full_sim_evictions += stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
-      for (uint64_t i = 0; i < num_blocks; i++) {
+      total_partial_hits += stats.partial_hits.value_or(std::pair{type, cpu}, partial_hits_value_type{});
+      total_partial_misses += stats.partial_misses.value_or(std::pair{type, cpu}, partial_misses_value_type{});
+
+
+      for (int i = 0; i < num_blocks + 1; i++) {
           evictions_breakdown[i] += stats.evictions_breakdown[i].value_or(std::pair{type, cpu}, evictions_breakdown_value_type{});
+      }
+
+     for (uint64_t i = 0; i < 16; i++) {
+          request_width_breakdown[i] += stats.request_width_breakdown[i].value_or(std::pair{type, cpu}, request_width_breakdown_value_type{});
       }
     }
 
@@ -168,58 +193,76 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     fmt::format_string<std::string_view, std::string_view, int, int, int> subblock_access_fmtstr{
         "cpu{}->{} {:<12s} EVICTIONS: {:10d} TOTAL_EVICTIONS: {:10d} SUB_BLOCKS_UNACCESSED: {:10d} TOTAL_SUB_BLOCKS_UNACCESSED: {:10d}"};
 
+    fmt::format_string<std::string_view, std::string_view, int, int, int> partial_hitmiss_fmtstr{
+        "cpu{}->{} {:<12s} PARTIAL_HITS: {:10d} PARTIAL_MISSES: {:10d}"};
+
     lines.push_back(fmt::format(hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_hits + total_misses, total_hits, total_misses, compulsory_misses, capacity_misses, conflict_misses, total_mshr_merge));
     lines.push_back(fmt::format(subblock_access_fmtstr, cpu, stats.name, "TOTAL", total_evictions, full_sim_evictions, no_access_subblocks, full_sim_no_access_subblocks));
     lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, "TOTAL", full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/float(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/float(full_sim_hits+full_sim_misses)));
+    lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_partial_hits, total_partial_misses));
     switch(num_blocks) {
         case 1:
             {
                 fmt::format_string<std::string_view, std::string_view, int, int, int, int> evictions_breakdown_fmtstr{
-                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 1: {:10d}"};
+                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 0: {:10d} 1: {:10d}"};
                 lines.push_back(fmt::format(evictions_breakdown_fmtstr, cpu, stats.name, "TOTAL",
-                    evictions_breakdown[0]));
+                    evictions_breakdown[0], evictions_breakdown[1]));
+
                     break;
             }
         case 2:
             {
                 fmt::format_string<std::string_view, std::string_view, int, int, int, int> evictions_breakdown_fmtstr{
-                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 1: {:10d} 2: {:10d}"};
+                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 0: {:10d} 1: {:10d} 2: {:10d}"};
                 lines.push_back(fmt::format(evictions_breakdown_fmtstr, cpu, stats.name, "TOTAL",
-                    evictions_breakdown[0], evictions_breakdown[1]));
+                    evictions_breakdown[0], evictions_breakdown[1], evictions_breakdown[2]));
+
                 break;
             }
         case 4:
             {
                 fmt::format_string<std::string_view, std::string_view, int, int, int, int> evictions_breakdown_fmtstr{
-                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 1: {:10d} 2: {:10d} 3: {:10d} 4: {:10d}"};
+                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 0: {:10d} 1: {:10d} 2: {:10d} 3: {:10d} 4: {:10d}"};
                 lines.push_back(fmt::format(evictions_breakdown_fmtstr, cpu, stats.name, "TOTAL",
-                    evictions_breakdown[0], evictions_breakdown[1], evictions_breakdown[2], evictions_breakdown[3]));
+                    evictions_breakdown[0], evictions_breakdown[1], evictions_breakdown[2], evictions_breakdown[3], evictions_breakdown[4]));
+
                 break;
             }
         case 8:
             {
                 fmt::format_string<std::string_view, std::string_view, int, int, int, int, int, int, int, int> evictions_breakdown_fmtstr{
-                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 1: {:10d} 2: {:10d} 3: {:10d} 4: {:10d} 5: {:10d} 6: {:10d} 7: {:10d} 8: {:10d}"};
+                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 0: {:10d} 1: {:10d} 2: {:10d} 3: {:10d} 4: {:10d} 5: {:10d} 6: {:10d} 7: {:10d} 8: {:10d}"};
                 lines.push_back(fmt::format(evictions_breakdown_fmtstr, cpu, stats.name, "TOTAL",
                     evictions_breakdown[0], evictions_breakdown[1], evictions_breakdown[2], evictions_breakdown[3],
-                    evictions_breakdown[4], evictions_breakdown[5], evictions_breakdown[6], evictions_breakdown[7]));
+                    evictions_breakdown[4], evictions_breakdown[5], evictions_breakdown[6], evictions_breakdown[7], evictions_breakdown[8]));
+
                 break;
             }
         case 16:
             {
                 fmt::format_string<std::string_view, std::string_view, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int, int> evictions_breakdown_fmtstr{
-                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 1: {:10d} 2: {:10d} 3: {:10d} 4: {:10d} 5: {:10d} 6: {:10d} 7: {:10d} 8: {:10d} 9: {:10d} 10: {:10d} 11: {:10d} 12: {:10d} 13: {:10d} 14: {:10d} 15: {:10d} 16: {:10d}"};
+                    "cpu{}->{} {:<12s} EVICTIONS_BREAKDOWN BLOCKS_USED 0: {:10d} 1: {:10d} 2: {:10d} 3: {:10d} 4: {:10d} 5: {:10d} 6: {:10d} 7: {:10d} 8: {:10d} 9: {:10d} 10: {:10d} 11: {:10d} 12: {:10d} 13: {:10d} 14: {:10d} 15: {:10d} 16: {:10d}"};
                 lines.push_back(fmt::format(evictions_breakdown_fmtstr, cpu, stats.name, "TOTAL",
                     evictions_breakdown[0], evictions_breakdown[1], evictions_breakdown[2], evictions_breakdown[3],
                     evictions_breakdown[4], evictions_breakdown[5], evictions_breakdown[6], evictions_breakdown[7],
                     evictions_breakdown[8], evictions_breakdown[9], evictions_breakdown[10], evictions_breakdown[11],
-                    evictions_breakdown[12], evictions_breakdown[13], evictions_breakdown[14], evictions_breakdown[15]));
+                    evictions_breakdown[12], evictions_breakdown[13], evictions_breakdown[14], evictions_breakdown[15], evictions_breakdown[16]));
+
                 break;
             }
         default:
             assert(false);
             break;
     }
+
+    fmt::format_string<std::string_view, std::string_view, int, int, int, int> request_width_breakdown_fmtstr{
+            "cpu{}->{} {:<12s} REQUEST_WIDTH NUMBER_OF_REQUESTS 1: {:10d} 2: {:10d} 3: {:10d} 4: {:10d} 5: {:10d} 6: {:10d} 7: {:10d} 8: {:10d} 9: {:10d} 10: {:10d} 11: {:10d} 12: {:10d} 13: {:10d} 14: {:10d} 15: {:10d} 16: {:10d}"};
+    lines.push_back(fmt::format(request_width_breakdown_fmtstr, cpu, stats.name, "TOTAL",
+            request_width_breakdown[0], request_width_breakdown[1], request_width_breakdown[2], request_width_breakdown[3],
+            request_width_breakdown[4], request_width_breakdown[5], request_width_breakdown[6], request_width_breakdown[7],
+            request_width_breakdown[8], request_width_breakdown[9], request_width_breakdown[10], request_width_breakdown[11],
+            request_width_breakdown[12], request_width_breakdown[13], request_width_breakdown[14], request_width_breakdown[15]));
+
 
 
 
@@ -237,6 +280,9 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       total_unrealised_hits_value_type per_type_full_sim_unrealised_hits = stats.total_unrealised_hits.value_or(std::pair{type, cpu}, total_unrealised_hits_value_type{});
       total_evictions_value_type per_type_full_sim_evictions = stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
       total_no_access_subblocks_value_type per_type_full_sim_no_access_subblocks = stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
+      partial_hits_value_type per_type_partial_hits = stats.partial_hits.value_or(std::pair{type, cpu}, partial_hits_value_type{});
+      partial_misses_value_type per_type_partial_misses = stats.partial_misses.value_or(std::pair{type, cpu}, partial_misses_value_type{});
+
       conflict_misses_value_type per_type_conflict_misses = 0;
       if (ENABLE_MISS_BREAKDOWN) {
         per_type_capacity_misses -= per_type_compulsory_misses;
@@ -256,6 +302,21 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
                   per_type_unrealised_hits, per_type_full_sim_unrealised_hits,
                   float(per_type_total_hits + per_type_unrealised_hits)/float(per_type_total_hits+per_type_total_misses),
                   float(per_type_full_sim_hits + per_type_full_sim_unrealised_hits)/float(per_type_full_sim_hits+per_type_full_sim_misses)));
+      lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)),
+                per_type_partial_hits, per_type_partial_misses));
+
+    std::vector<request_width_breakdown_value_type> per_type_request_width_breakdown(16, 0);
+    for (uint64_t i = 0; i < 16; i++) {
+        per_type_request_width_breakdown[i] = stats.request_width_breakdown[i].value_or(std::pair{type, cpu}, request_width_breakdown_value_type{});
+    }
+
+    lines.push_back(fmt::format(request_width_breakdown_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)),
+            per_type_request_width_breakdown[0], per_type_request_width_breakdown[1], per_type_request_width_breakdown[2], per_type_request_width_breakdown[3],
+            per_type_request_width_breakdown[4], per_type_request_width_breakdown[5], per_type_request_width_breakdown[6], per_type_request_width_breakdown[7],
+            per_type_request_width_breakdown[8], per_type_request_width_breakdown[9], per_type_request_width_breakdown[10], per_type_request_width_breakdown[11],
+            per_type_request_width_breakdown[12], per_type_request_width_breakdown[13], per_type_request_width_breakdown[14], per_type_request_width_breakdown[15]));
+
+
 
     lines.push_back(fmt::format("cpu{}->{} PREFETCH REQUESTED: {:10} ISSUED: {:10} USEFUL: {:10} USELESS: {:10}", cpu, stats.name, stats.pf_requested,
                                 stats.pf_issued, stats.pf_useful, stats.pf_useless));
@@ -263,7 +324,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     uint64_t total_downstream_demands = total_mshr_return - stats.mshr_return.value_or(std::pair{access_type::PREFETCH, cpu}, mshr_return_value_type{});
     lines.push_back(
         fmt::format("cpu{}->{} AVERAGE MISS LATENCY: {} cycles", cpu, stats.name, ::print_ratio(stats.total_miss_latency_cycles, total_downstream_demands)));
-  }
+    }
   }
 
   return lines;
