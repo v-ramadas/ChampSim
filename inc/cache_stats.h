@@ -52,6 +52,8 @@ struct cache_stats {
   std::vector<champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>>> evictions_breakdown;
   // tracks the breakdown of evictions by how many subblocks were used
   std::vector<champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>>> request_width_breakdown;
+  // tracks the number of requests merged
+  champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> requests_merged = {};
 
   // End of new stats
 

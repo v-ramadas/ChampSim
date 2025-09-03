@@ -423,10 +423,11 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
         mshr_accesses_between_evictions[addr].push_back(handle_pkt.address) ;
   }
 
-  if (NAME.find(std::string("TLB")) == std::string::npos) {
-      assert(handle_pkt.num_requests <= 16);
-      sim_stats.request_width_breakdown[handle_pkt.num_requests-1].increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-  }
+  sim_stats.requests_merged.allocate(std::pair{handle_pkt.type, handle_pkt.cpu}); 
+  sim_stats.requests_merged.set(std::pair{handle_pkt.type, handle_pkt.cpu}, 
+      sim_stats.requests_merged.at(std::pair{handle_pkt.type, handle_pkt.cpu}) + handle_pkt.num_requests); 
+  auto num_words_accessed = __builtin_popcountl(handle_pkt.byte_mask)/8; 
+  sim_stats.request_width_breakdown[num_words_accessed-1].increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   return hit;
 }
 

@@ -87,6 +87,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
   using total_evictions_value_type = typename decltype(stats.total_evictions)::value_type;
   using evictions_breakdown_value_type = typename decltype(stats.total_evictions)::value_type;
   using request_width_breakdown_value_type = typename decltype(stats.total_evictions)::value_type;
+  using requests_merged_value_type = typename decltype(stats.requests_merged)::value_type;
 
   std::vector<std::size_t> cpus;
 
@@ -116,6 +117,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       stats.total_evictions.allocate(std::pair{type, cpu});
       stats.partial_hits.allocate(std::pair{type, cpu});
       stats.partial_misses.allocate(std::pair{type, cpu});
+      stats.requests_merged.allocate(std::pair{type, cpu});
 
       for (auto it = stats.evictions_breakdown.begin(); it != stats.evictions_breakdown.end(); it++) {
           it->allocate(std::pair{type, cpu});
@@ -151,7 +153,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
     std::vector<request_width_breakdown_value_type> request_width_breakdown(16, 0);
     partial_hits_value_type total_partial_hits = 0;
     partial_misses_value_type total_partial_misses = 0;
-
+    requests_merged_value_type total_requests_merged = 0;
 
     for (const auto type : {access_type::LOAD, access_type::RFO, access_type::PREFETCH, access_type::WRITE}) {
       total_hits += stats.hits.value_or(std::pair{type, cpu}, hits_value_type{});
@@ -170,7 +172,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       full_sim_evictions += stats.total_evictions.value_or(std::pair{type, cpu}, total_evictions_value_type{});
       total_partial_hits += stats.partial_hits.value_or(std::pair{type, cpu}, partial_hits_value_type{});
       total_partial_misses += stats.partial_misses.value_or(std::pair{type, cpu}, partial_misses_value_type{});
-
+      total_requests_merged += stats.requests_merged.value_or(std::pair{type, cpu}, requests_merged_value_type{});
 
       for (int i = 0; i < num_blocks + 1; i++) {
           evictions_breakdown[i] += stats.evictions_breakdown[i].value_or(std::pair{type, cpu}, evictions_breakdown_value_type{});
@@ -194,12 +196,12 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
         "cpu{}->{} {:<12s} EVICTIONS: {:10d} TOTAL_EVICTIONS: {:10d} SUB_BLOCKS_UNACCESSED: {:10d} TOTAL_SUB_BLOCKS_UNACCESSED: {:10d}"};
 
     fmt::format_string<std::string_view, std::string_view, int, int, int> partial_hitmiss_fmtstr{
-        "cpu{}->{} {:<12s} PARTIAL_HITS: {:10d} PARTIAL_MISSES: {:10d}"};
+        "cpu{}->{} {:<12s} REQUESTS_MERGED: {:10d} PARTIAL_HITS: {:10d} PARTIAL_MISSES: {:10d}"};
 
     lines.push_back(fmt::format(hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_hits + total_misses, total_hits, total_misses, compulsory_misses, capacity_misses, conflict_misses, total_mshr_merge));
     lines.push_back(fmt::format(subblock_access_fmtstr, cpu, stats.name, "TOTAL", total_evictions, full_sim_evictions, no_access_subblocks, full_sim_no_access_subblocks));
     lines.push_back(fmt::format(ghost_cache_fmtstr, cpu, stats.name, "TOTAL", full_sim_hits + full_sim_misses, full_sim_hits, full_sim_misses, unrealised_hits, full_sim_unrealised_hits, float(total_hits + unrealised_hits)/float(total_hits+total_misses), float(full_sim_hits + full_sim_unrealised_hits)/float(full_sim_hits+full_sim_misses)));
-    lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_partial_hits, total_partial_misses));
+    lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, "TOTAL", total_requests_merged, total_partial_hits, total_partial_misses));
     switch(num_blocks) {
         case 1:
             {
@@ -282,6 +284,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
       total_no_access_subblocks_value_type per_type_full_sim_no_access_subblocks = stats.total_no_access_subblocks.value_or(std::pair{type, cpu}, total_no_access_subblocks_value_type{});
       partial_hits_value_type per_type_partial_hits = stats.partial_hits.value_or(std::pair{type, cpu}, partial_hits_value_type{});
       partial_misses_value_type per_type_partial_misses = stats.partial_misses.value_or(std::pair{type, cpu}, partial_misses_value_type{});
+      requests_merged_value_type per_type_requests_merged = stats.requests_merged.value_or(std::pair{type, cpu}, request_width_breakdown_value_type{});
 
       conflict_misses_value_type per_type_conflict_misses = 0;
       if (ENABLE_MISS_BREAKDOWN) {
@@ -303,7 +306,7 @@ std::vector<std::string> champsim::plain_printer::format(CACHE::stats_type stats
                   float(per_type_total_hits + per_type_unrealised_hits)/float(per_type_total_hits+per_type_total_misses),
                   float(per_type_full_sim_hits + per_type_full_sim_unrealised_hits)/float(per_type_full_sim_hits+per_type_full_sim_misses)));
       lines.push_back(fmt::format(partial_hitmiss_fmtstr, cpu, stats.name, access_type_names.at(champsim::to_underlying(type)),
-                per_type_partial_hits, per_type_partial_misses));
+                per_type_requests_merged, per_type_partial_hits, per_type_partial_misses));
 
     std::vector<request_width_breakdown_value_type> per_type_request_width_breakdown(16, 0);
     for (uint64_t i = 0; i < 16; i++) {
