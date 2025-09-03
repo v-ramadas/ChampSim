@@ -29,14 +29,6 @@ champsim::channel::channel(std::size_t rq_size, std::size_t pq_size, std::size_t
 {
 }
 
-uint64_t set_byte_mask(uint64_t byte_mask, uint64_t offset)
-{
-    if (CACHE_BLOCK_SIZE < 64)
-       return (byte_mask | ((1ULL << (CACHE_BLOCK_SIZE)) - 1) << offset * CACHE_BLOCK_SIZE);
-    else
-        return 0xffffffffffffffff;
-}
-
 template <typename Iter, typename F>
 bool do_collision_for(Iter begin, Iter end, champsim::channel::request_type& packet, champsim::data::bits shamt, F&& func)
 {
@@ -47,7 +39,6 @@ bool do_collision_for(Iter begin, Iter end, champsim::channel::request_type& pac
   if (auto found =
           std::find_if(begin, end, [match = packet.address.slice_upper(shamt), shamt](const auto& x) { return x.address.slice_upper(shamt) == match; });
       found != end && packet.is_translated == found->is_translated) {
-    fmt::print("Found that it matches with address {}. ", (*found).address);
     func(packet, *found);
     return true;
   }
@@ -60,15 +51,13 @@ bool do_collision_for_merge(Iter begin, Iter end, champsim::channel::request_typ
 {
   return do_collision_for(begin, end, packet, shamt, [](champsim::channel::request_type& source, champsim::channel::request_type& destination) {
     // Calculate byte masks
-    fmt::print("Inside func with source {} and dest {}. ", source.address, destination.address);
     champsim::data::bits mask_size = champsim::data::bits{LOG2_BLOCK_SIZE};
-    auto source_block_offset = (source.address.slice_lower(mask_size).to<uint64_t>()/CACHE_BLOCK_SIZE);
-    source.byte_mask = set_byte_mask(source.byte_mask, source_block_offset);
-    auto dest_block_offset = (destination.address.slice_lower(mask_size).to<uint64_t>()/CACHE_BLOCK_SIZE);
-    destination.byte_mask = set_byte_mask(destination.byte_mask | source.byte_mask, dest_block_offset);
-    destination.reqs_merged = destination.reqs_merged + source.reqs_merged;
+    uint64_t source_block_offset = (source.address.slice_lower(mask_size).to<uint64_t>()/ADAPTIVE_BLOCK_SIZE);
+    source.byte_mask = champsim::set_byte_mask(source.byte_mask, source_block_offset);
+    uint64_t dest_block_offset = (destination.address.slice_lower(mask_size).to<uint64_t>()/ADAPTIVE_BLOCK_SIZE);
+    destination.byte_mask = champsim::set_byte_mask(destination.byte_mask | source.byte_mask, dest_block_offset);
+    destination.num_requests = destination.num_requests + source.num_requests;
     // End calculation
-    fmt::print("Inside func with source {}, reqs {}, byte_en {:#x} and dest {}, reqs {}, byte_en {:#x}. ", source.address, source.reqs_merged, source.byte_mask, destination.address, destination.reqs_merged, destination.byte_mask);
 
     destination.response_requested |= source.response_requested;
     auto instr_copy = std::move(destination.instr_depend_on_me);
@@ -96,6 +85,7 @@ void champsim::channel::check_collision()
 
   // Check WQ for duplicates, merging if they are found
   for (auto wq_it = std::find_if(std::begin(WQ), std::end(WQ), std::not_fn(&request_type::forward_checked)); wq_it != std::end(WQ);) {
+    wq_it->set_byte_mask();
     if (do_collision_for_merge(std::begin(WQ), wq_it, *wq_it, write_shamt)) {
       sim_stats.WQ_MERGED++;
       wq_it = WQ.erase(wq_it);
@@ -107,7 +97,7 @@ void champsim::channel::check_collision()
 
   // Check RQ for forwarding from WQ (return if found), then for duplicates (merge if found)
   for (auto rq_it = std::find_if(std::begin(RQ), std::end(RQ), std::not_fn(&request_type::forward_checked)); rq_it != std::end(RQ);) {
-    fmt::print("Trying to merge req to addr {}. ", rq_it->address);
+    rq_it->set_byte_mask();
     if (do_collision_for_return(std::begin(WQ), std::end(WQ), *rq_it, write_shamt, returned)) {
       sim_stats.WQ_FORWARD++;
       rq_it = RQ.erase(rq_it);
@@ -118,11 +108,11 @@ void champsim::channel::check_collision()
       rq_it->forward_checked = true;
       ++rq_it;
     }
-    fmt::print("\n");
   }
 
   // Check PQ for forwarding from WQ (return if found), then for duplicates (merge if found)
   for (auto pq_it = std::find_if(std::begin(PQ), std::end(PQ), std::not_fn(&request_type::forward_checked)); pq_it != std::end(PQ);) {
+    pq_it->set_byte_mask();
     if (do_collision_for_return(std::begin(WQ), std::end(WQ), *pq_it, write_shamt, returned)) {
       sim_stats.WQ_FORWARD++;
       pq_it = PQ.erase(pq_it);
@@ -223,3 +213,12 @@ std::size_t champsim::channel::rq_size() const { return RQ_SIZE; }
 std::size_t champsim::channel::wq_size() const { return WQ_SIZE; }
 
 std::size_t champsim::channel::pq_size() const { return PQ_SIZE; }
+
+uint64_t champsim::set_byte_mask(uint64_t byte_mask, uint64_t offset)
+{
+    if (ADAPTIVE_BLOCK_SIZE < 64)
+       return (byte_mask | ((1ULL << (ADAPTIVE_BLOCK_SIZE)) - 1) << offset * ADAPTIVE_BLOCK_SIZE);
+    else
+        return 0xffffffffffffffff;
+}
+

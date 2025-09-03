@@ -51,8 +51,7 @@ const unsigned PAGE_SIZE = configured_environment::page_size;
 const unsigned LOG2_BLOCK_SIZE = champsim::lg2(BLOCK_SIZE);
 const unsigned LOG2_PAGE_SIZE = champsim::lg2(PAGE_SIZE);
 bool ENABLE_MISS_BREAKDOWN = false;
-unsigned int CACHE_BLOCK_SIZE = 8;
-unsigned int LOG2_CACHE_BLOCK_SIZE = champsim::lg2(CACHE_BLOCK_SIZE);
+unsigned int ADAPTIVE_BLOCK_SIZE = 8;
 
 #ifndef CHAMPSIM_TEST_BUILD
 int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
@@ -90,10 +89,9 @@ int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
 
   app.add_option("traces", trace_names, "The paths to the traces")->required()->expected(NUM_CPUS)->check(CLI::ExistingFile);
 
-  auto* cache_block_size_option = app.add_option("-b,--cache-block-size", CACHE_BLOCK_SIZE, "The cache block size to be used.");
+  auto* cache_block_size_option = app.add_option("-b,--cache-block-size", ADAPTIVE_BLOCK_SIZE, "The cache block size to be used.");
 
   CLI11_PARSE(app, argc, argv);
-  LOG2_CACHE_BLOCK_SIZE = champsim::lg2(CACHE_BLOCK_SIZE);
 
   const bool warmup_given = (warmup_instr_option->count() > 0) || (deprec_warmup_instr_option->count() > 0);
   const bool simulation_given = (sim_instr_option->count() > 0) || (deprec_sim_instr_option->count() > 0);

@@ -31,6 +31,8 @@
 namespace champsim
 {
 
+uint64_t set_byte_mask(uint64_t byte_mask, uint64_t offset);
+
 struct cache_queue_stats {
   uint64_t RQ_ACCESS = 0;
   uint64_t RQ_MERGED = 0;
@@ -65,10 +67,16 @@ class channel
     champsim::address data{};
     uint64_t instr_id = 0;
     champsim::address ip{};
-    uint32_t reqs_merged = 1;
+    uint32_t num_requests = 1;
     uint64_t byte_mask = 0;
 
     std::vector<uint64_t> instr_depend_on_me{};
+
+    void set_byte_mask() {
+      champsim::data::bits mask_size = champsim::data::bits{LOG2_BLOCK_SIZE};
+      uint64_t offset = (address.slice_lower(mask_size).to<uint64_t>()/ADAPTIVE_BLOCK_SIZE);
+      byte_mask = champsim::set_byte_mask(byte_mask, offset);
+    }
   };
 
   struct response {
