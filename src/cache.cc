@@ -195,6 +195,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   auto fill_blocks_mshr = fill_mshr;
   fill_blocks_mshr.address = champsim::address{align_address(fill_blocks_mshr.address.to<uint64_t>(), BLOCK_SIZE)};
   fill_blocks_mshr.v_address = champsim::address{align_address(fill_blocks_mshr.v_address.to<uint64_t>(), BLOCK_SIZE)};
+  std::vector<uint64_t> ways;
   while (num_blocks_filled < num_blocks) {
     auto try_way = std::find_if(set_begin, set_end, [matcher = matches_block_address(fill_blocks_mshr.address)](const auto& x) { return x.valid && matcher(x); });
     const auto hit = (try_way != set_end);
@@ -249,14 +250,9 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       }
     
       champsim::address evicting_address{};
-      bool evicted = false;
       if (way != set_end && way->valid) {
         evicting_address = module_address(*way);
-        evicted = true;
-      }
-    
-      if (evicted) {
-        register_sector_eviction(way->address, fill_blocks_mshr, way_idx);
+        ways.push_back(way_idx);
         sim_stats.evictions.increment(std::pair{fill_blocks_mshr.type, fill_blocks_mshr.cpu});
         sim_stats.total_evictions.increment(std::pair{fill_blocks_mshr.type, fill_blocks_mshr.cpu});
       }
@@ -280,6 +276,8 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       }
     }
 
+    register_sector_eviction(set_idx, ways, fill_blocks_mshr);
+
     ++num_blocks_filled;
     fill_blocks_mshr.address += CACHE_BLOCK_SIZE;
     fill_blocks_mshr.v_address += CACHE_BLOCK_SIZE;
@@ -302,6 +300,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
         assert(way <= set_end);
         assert(way != set_end);
         const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier 
+
         register_sector_access(*it, way_idx);
         it = mshr_accesses[mshr_address].erase(it);
       }
@@ -386,10 +385,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
         way->dirty |= (handle_pkt.type == access_type::WRITE);
       }
 
-      block_address = way->address;
-
-      register_sector_access(handle_pkt, way_idx);
-      impl_update_replacement_state(handle_pkt.cpu, get_set_index(block_address), way_idx, module_block_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
+      register_sector_access(way->address, way_idx);
+      impl_update_replacement_state(handle_pkt.cpu, get_set_index(way->address), way_idx, module_block_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
                                 hit);
 
       // update prefetch stats and reset prefetch bit
@@ -1023,9 +1020,10 @@ void CACHE::begin_phase()
   }
 
   num_blocks = (BLOCK_SIZE/CACHE_BLOCK_SIZE);
-  
-  if (accesses_between_evictions.size() != this->NUM_SET*this->NUM_WAY * num_sectors) {
-      accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * num_sectors, 0);
+  way_size = CACHE_BLOCK_SIZE/SECTOR_SIZE;
+  fmt::print("[{}] way_size = {}", NAME, way_size);
+  if (accesses_between_evictions.size() != this->NUM_SET*this->NUM_WAY * way_size) {
+      accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * way_size, 0);
   }
   if (sim_stats.evictions_breakdown.size() != (this->num_sectors+1)) {
       sim_stats.evictions_breakdown.assign(this->num_sectors+1, champsim::stats::event_counter<std::pair<access_type, std::remove_cv_t<decltype(NUM_CPUS)>>> {});
@@ -1181,30 +1179,32 @@ bool CACHE::check_capacity_miss(const tag_lookup_type& handle_pkt) {
   return result;
 }
 
-void CACHE::register_sector_access(const tag_lookup_type& handle_pkt, uint64_t way_idx) {
-      uint64_t word_offset = (align_address(handle_pkt.address.to<uint64_t>(), SECTOR_SIZE) % BLOCK_SIZE)/SECTOR_SIZE;
-      auto cache_line_idx = (get_set_index(handle_pkt.address)*this->NUM_WAY + way_idx);
-      accesses_between_evictions[(cache_line_idx * num_blocks) + word_offset] = 1;
-}
-
 void CACHE::register_sector_access(const champsim::address address, uint64_t way_idx) {
-      uint64_t word_offset = (align_address(address.to<uint64_t>(), SECTOR_SIZE) % BLOCK_SIZE)/SECTOR_SIZE;
-      auto cache_line_idx = (get_set_index(address)*this->NUM_WAY + way_idx);
-      accesses_between_evictions[(cache_line_idx * num_blocks) + word_offset] = 1;
+      uint64_t offset = (align_address(address.to<uint64_t>(), SECTOR_SIZE) % CACHE_BLOCK_SIZE)/SECTOR_SIZE;
+      auto cache_block_idx = (get_set_index(address)*this->NUM_WAY + way_idx);
+      accesses_between_evictions[(cache_block_idx * way_size) + offset] = 1;
 }
 
-void CACHE::register_sector_eviction(const champsim::address& addr, const mshr_type& fill_mshr, uint64_t way_idx) {
-  auto cache_line_idx = (get_set_index(addr)*this->NUM_WAY + way_idx);
-  uint64_t subblocks_accessed = num_sectors;
-  for (unsigned word_idx = 0; word_idx < num_sectors; word_idx++) {
-    if (accesses_between_evictions[(cache_line_idx*num_sectors) + word_idx] == 0) {
-      sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-      sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
-      subblocks_accessed--;
+void CACHE::register_sector_eviction(uint64_t set_idx, std::vector<uint64_t> ways, const mshr_type& fill_mshr) {
+  // No ways evicted
+  if (ways.size() == 0)
+    return;
+
+  int subblocks_accessed = (int)(num_sectors);
+  
+  for (auto way_idx: ways) {
+    auto cache_line_idx = (set_idx*this->NUM_WAY + way_idx);
+    for (unsigned idx = 0; idx < way_size; idx++) {
+      uint64_t block_idx = (cache_line_idx*way_size) + idx;
+      if (accesses_between_evictions[block_idx] == 0) {
+        sim_stats.no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+        sim_stats.total_no_access_subblocks.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+        subblocks_accessed--;
+      }
+      accesses_between_evictions[block_idx] = 0;
     }
-    uint64_t idx = (cache_line_idx*num_sectors) + word_idx;
-    accesses_between_evictions[idx] = 0;
   }
-  // Update subblocks_accessed - 1 as arrays start at 0
+  
+  assert(subblocks_accessed >= 0);
   sim_stats.evictions_breakdown[subblocks_accessed].increment(std::pair{fill_mshr.type, fill_mshr.cpu});
 }

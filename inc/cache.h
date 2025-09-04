@@ -172,6 +172,7 @@ private:
   uint64_t MAX_NUM_WAY;
   const unsigned SECTOR_SIZE = 8;
   const unsigned num_sectors = BLOCK_SIZE/SECTOR_SIZE;
+  unsigned way_size = 1;
   // End of new structures and fields
 
 public:
@@ -209,9 +210,8 @@ public:
   // New auxilliary functions
   bool check_compulsory_miss(const tag_lookup_type& handle_pkt);
   bool check_capacity_miss(const tag_lookup_type& handle_pkt);
-  void register_sector_access(const tag_lookup_type& handle_pkt, uint64_t way_idx);
   void register_sector_access(const champsim::address, uint64_t way_idx);
-  void register_sector_eviction(const champsim::address& addr, const mshr_type& fill_mshr, uint64_t way_idx);
+  void register_sector_eviction(uint64_t set_idx, std::vector<uint64_t> ways, const mshr_type& fill_mshr);
   uint64_t align_address(const uint64_t address, const uint64_t size);
   // End functions
 
