@@ -292,10 +292,10 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
 
   //Update utilization structs now
   uint64_t mshr_address = (fill_mshr.address.to<uint64_t>()/BLOCK_SIZE)*BLOCK_SIZE;
-  if (mshr_accesses_between_evictions.find(mshr_address) != mshr_accesses_between_evictions.end()) {
+  if (mshr_accesses.find(mshr_address) != mshr_accesses.end()) {
       // Found list of addresses
-      for (auto it = mshr_accesses_between_evictions[mshr_address].begin();
-             it != mshr_accesses_between_evictions[mshr_address].end();) {
+      for (auto it = mshr_accesses[mshr_address].begin();
+             it != mshr_accesses[mshr_address].end();) {
 
         auto way = std::find_if(set_begin, set_end, [matcher = matches_block_address((*it))](const auto& x) { return x.valid && matcher(x); });
         assert(set_begin <= way);
@@ -303,10 +303,10 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
         assert(way != set_end);
         const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier 
         register_sector_access(*it, way_idx);
-        it = mshr_accesses_between_evictions[mshr_address].erase(it);
+        it = mshr_accesses[mshr_address].erase(it);
       }
-      if (mshr_accesses_between_evictions[mshr_address].size() == 0)
-          mshr_accesses_between_evictions.erase(mshr_address);
+      if (mshr_accesses[mshr_address].size() == 0)
+          mshr_accesses.erase(mshr_address);
   }
 
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
@@ -356,7 +356,7 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
       } else {
           uint64_t mshr_address = handle_pkt.address.to<uint64_t>();
           uint64_t addr = (mshr_address/BLOCK_SIZE)*BLOCK_SIZE;
-          if (mshr_accesses_between_evictions.find(addr) != mshr_accesses_between_evictions.end())
+          if (mshr_accesses.find(addr) != mshr_accesses.end())
             sim_stats.partial_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
           else 
             sim_stats.partial_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
@@ -398,29 +398,14 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
         way->prefetch = false;
       }
     }
-
-    /*if (num_blocks > 1) {
-      uint64_t addr = (handle_pkt.address.to<uint64_t>()/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
-      auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
-      auto it = find(ghost_cache_set->begin(), ghost_cache_set->end(), addr);
-      if (it != ghost_cache_set->end()) {
-        ghost_cache_set->erase(it);
-        ghost_cache_set->push_front(addr);
-      } else {
-        if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
-          ghost_cache_set->pop_back();
-        }
-        ghost_cache_set->push_front(addr);
-      }
-    }*/
   } else {
     // Request missed in cache. Add it to mshr_accesses_between_evicitons so that we can use this info during handle_fill to mark which subblocks were accessed
     uint64_t mshr_address = handle_pkt.address.to<uint64_t>();
     uint64_t addr = (mshr_address/BLOCK_SIZE)*BLOCK_SIZE;
-    if (mshr_accesses_between_evictions.find(addr) == mshr_accesses_between_evictions.end())
-        mshr_accesses_between_evictions.emplace(addr, std::vector<champsim::address>{handle_pkt.address});
+    if (mshr_accesses.find(addr) == mshr_accesses.end())
+        mshr_accesses.emplace(addr, std::vector<champsim::address>{handle_pkt.address});
     else 
-        mshr_accesses_between_evictions[addr].push_back(handle_pkt.address) ;
+        mshr_accesses[addr].push_back(handle_pkt.address) ;
   }
 
   sim_stats.requests_merged.allocate(std::pair{handle_pkt.type, handle_pkt.cpu}); 
@@ -503,20 +488,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }
 
-  /*if (num_blocks > 1) {
-    uint64_t addr = ((handle_pkt.address.to<uint64_t>())/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
-    auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
-    if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
-      if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
-        ghost_cache_set->pop_back();
-      }
-      ghost_cache_set->push_front(addr);
-    } else {
-      sim_stats.unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-      sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-    }
-  }*/
-
   if (ENABLE_MISS_BREAKDOWN) {
     check_compulsory_miss(handle_pkt);
     // Compulsory misses are subtracted away at the end
@@ -540,20 +511,6 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   mshr_type to_allocate{handle_pkt, current_time};
   to_allocate.data_promise.ready_at(current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
-
-  /*if (num_blocks > 1) {
-    uint64_t addr = ((handle_pkt.address.to<uint64_t>())/CACHE_BLOCK_SIZE)*CACHE_BLOCK_SIZE;
-    auto ghost_cache_set = &ghost_cache[get_set_index(handle_pkt.address)];
-    if (find(ghost_cache_set->begin(), ghost_cache_set->end(), addr) == ghost_cache_set->end()) {
-      if (ghost_cache_set->size() == (this->NUM_SET * this->MAX_NUM_WAY)) {
-        ghost_cache_set->pop_back();
-      }
-      ghost_cache_set->push_front(addr);
-    } else {
-      sim_stats.unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-      sim_stats.total_unrealised_hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
-    }
-  }*/
 
   if (ENABLE_MISS_BREAKDOWN) {
     check_compulsory_miss(handle_pkt);
@@ -1066,10 +1023,6 @@ void CACHE::begin_phase()
   }
 
   num_blocks = (BLOCK_SIZE/CACHE_BLOCK_SIZE);
-  /*MAX_NUM_WAY = this->NUM_WAY * num_blocks;
-  if (ghost_cache.size() != this->NUM_SET) {
-      ghost_cache.resize(this->NUM_SET);
-  }*/
   
   if (accesses_between_evictions.size() != this->NUM_SET*this->NUM_WAY * num_sectors) {
       accesses_between_evictions.assign(this->NUM_SET*this->NUM_WAY * num_sectors, 0);
@@ -1229,7 +1182,7 @@ bool CACHE::check_capacity_miss(const tag_lookup_type& handle_pkt) {
 }
 
 void CACHE::register_sector_access(const tag_lookup_type& handle_pkt, uint64_t way_idx) {
-      uint64_t word_offset = (((handle_pkt.address.to<uint64_t>()/8)*SECTOR_SIZE) % BLOCK_SIZE)/SECTOR_SIZE;
+      uint64_t word_offset = (align_address(handle_pkt.address.to<uint64_t>(), SECTOR_SIZE) % BLOCK_SIZE)/SECTOR_SIZE;
       auto cache_line_idx = (get_set_index(handle_pkt.address)*this->NUM_WAY + way_idx);
       accesses_between_evictions[(cache_line_idx * num_blocks) + word_offset] = 1;
 }
