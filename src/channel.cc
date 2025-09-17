@@ -52,9 +52,9 @@ bool do_collision_for_merge(Iter begin, Iter end, champsim::channel::request_typ
   return do_collision_for(begin, end, packet, shamt, [](champsim::channel::request_type& source, champsim::channel::request_type& destination) {
     // Calculate byte masks
     champsim::data::bits mask_size = champsim::data::bits{LOG2_BLOCK_SIZE};
-    uint64_t source_block_offset = (source.address.slice_lower(mask_size).to<uint64_t>()/ADAPTIVE_BLOCK_SIZE);
+    uint64_t source_block_offset = (source.address.slice_lower(mask_size).to<uint64_t>()/SECTOR_SIZE);
     source.byte_mask = champsim::set_byte_mask(source.byte_mask, source_block_offset);
-    uint64_t dest_block_offset = (destination.address.slice_lower(mask_size).to<uint64_t>()/ADAPTIVE_BLOCK_SIZE);
+    uint64_t dest_block_offset = (destination.address.slice_lower(mask_size).to<uint64_t>()/SECTOR_SIZE);
     destination.byte_mask = champsim::set_byte_mask(destination.byte_mask | source.byte_mask, dest_block_offset);
     destination.num_requests = destination.num_requests + source.num_requests;
     // End calculation
@@ -81,7 +81,7 @@ bool do_collision_for_return(Iter begin, Iter end, champsim::channel::request_ty
 void champsim::channel::check_collision()
 {
   auto write_shamt = match_offset_bits ? champsim::data::bits{} : OFFSET_BITS;
-  auto read_shamt = OFFSET_BITS;
+  auto read_shamt = match_offset_bits ? champsim::data::bits{} : OFFSET_BITS;
 
   // Check WQ for duplicates, merging if they are found
   for (auto wq_it = std::find_if(std::begin(WQ), std::end(WQ), std::not_fn(&request_type::forward_checked)); wq_it != std::end(WQ);) {
@@ -216,9 +216,6 @@ std::size_t champsim::channel::pq_size() const { return PQ_SIZE; }
 
 uint64_t champsim::set_byte_mask(uint64_t byte_mask, uint64_t offset)
 {
-    if (ADAPTIVE_BLOCK_SIZE < 64)
-       return (byte_mask | ((1ULL << (ADAPTIVE_BLOCK_SIZE)) - 1) << offset * ADAPTIVE_BLOCK_SIZE);
-    else
-        return 0xffffffffffffffff;
+    return (byte_mask | ((1ULL << (SECTOR_SIZE)) - 1) << offset * SECTOR_SIZE);
 }
 

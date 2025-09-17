@@ -211,7 +211,7 @@ public:
   bool check_compulsory_miss(const tag_lookup_type& handle_pkt);
   bool check_capacity_miss(const tag_lookup_type& handle_pkt);
   void register_sector_access(const champsim::address, uint64_t way_idx);
-  void register_sector_eviction(uint64_t set_idx, std::vector<uint64_t> ways, const mshr_type& fill_mshr);
+  void register_sector_eviction(uint64_t set_idx, std::vector<uint64_t> ways, const mshr_type& fill_mshr, champsim::address evicting_address);
   uint64_t align_address(const uint64_t address, const uint64_t size);
   // End functions
 

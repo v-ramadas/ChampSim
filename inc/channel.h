@@ -74,7 +74,7 @@ class channel
 
     void set_byte_mask() {
       champsim::data::bits mask_size = champsim::data::bits{LOG2_BLOCK_SIZE};
-      uint64_t offset = (address.slice_lower(mask_size).to<uint64_t>()/ADAPTIVE_BLOCK_SIZE);
+      uint64_t offset = (address.slice_lower(mask_size).to<uint64_t>()/SECTOR_SIZE);
       byte_mask = champsim::set_byte_mask(byte_mask, offset);
     }
   };

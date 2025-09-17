@@ -52,6 +52,8 @@ const unsigned LOG2_BLOCK_SIZE = champsim::lg2(BLOCK_SIZE);
 const unsigned LOG2_PAGE_SIZE = champsim::lg2(PAGE_SIZE);
 bool ENABLE_MISS_BREAKDOWN = false;
 unsigned int ADAPTIVE_BLOCK_SIZE = 8;
+const unsigned SECTOR_SIZE = 8;
+const unsigned LOG2_SECTOR_SIZE = champsim::lg2(SECTOR_SIZE);
 
 #ifndef CHAMPSIM_TEST_BUILD
 int main(int argc, char** argv) // NOLINT(bugprone-exception-escape)
