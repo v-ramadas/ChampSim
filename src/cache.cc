@@ -206,11 +206,15 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     const auto hit = (way != set_end);
     // Fill block in cache. Discard fetched block and place new block in LRU
     if (hit) {
-        const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier 
-      if (1 /*block_accessed*/) {
-        impl_replacement_cache_fill(fill_mshr.cpu, set_idx, way_idx, module_block_address(fill_block_packet), fill_mshr.ip, champsim::address{},
+      const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier 
+      if (champsim::get_byte_mask(fill_mshr.byte_mask, num_blocks_filled) != 0x0) {
+        impl_replacement_cache_fill(fill_mshr.cpu, set_idx, way_idx, module_block_address(fill_block_packet), fill_mshr.ip, fill_mshr.address,
                                   fill_mshr.type);
-      }
+      } else {
+        impl_replacement_cache_fill(fill_mshr.cpu, set_idx, way_idx, module_block_address(fill_block_packet), fill_mshr.ip, champsim::address{0},
+                                fill_mshr.type);
+    }
+
       ++num_blocks_filled;
       fill_block_packet.address += CACHE_BLOCK_SIZE;
       fill_block_packet.v_address += CACHE_BLOCK_SIZE;
@@ -229,9 +233,10 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
     const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier assertion
   
     if constexpr (champsim::debug_print) {
-      fmt::print("[{}] {} instr_id: {} address: {} v_address: {} set: {} way: {} type: {} prefetch_metadata: {} cycle_enqueued: {} cycle: {}\n", NAME, __func__,
+      fmt::print("[{}] {} instr_id: {} address: {} v_address: {} set: {} way: {} type: {} byte_mask: {:#x} prefetch_metadata: {} cycle_enqueued: {} cycle: {}\n", NAME, __func__,
                  fill_mshr.instr_id, fill_block_packet.address, fill_mshr.v_address, get_set_index(fill_block_packet.address), way_idx,
-                 access_type_names.at(champsim::to_underlying(fill_mshr.type)), fill_mshr.data_promise->pf_metadata,
+                 access_type_names.at(champsim::to_underlying(fill_mshr.type)), 
+                 fill_mshr.byte_mask, fill_mshr.data_promise->pf_metadata,
                  (fill_mshr.time_enqueued.time_since_epoch()) / clock_period, (current_time.time_since_epoch()) / clock_period);
     }
   
@@ -269,9 +274,15 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
    
     metadata_thru = impl_prefetcher_cache_fill(module_address(fill_mshr), get_set_index(fill_mshr.address), way_idx,
                                                     (fill_mshr.type == access_type::PREFETCH), evicting_address, fill_mshr.data_promise->pf_metadata);
-    impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, evicting_address,
+
+    if (champsim::get_byte_mask(fill_mshr.byte_mask, num_blocks_filled) != 0x0) {
+      impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, evicting_address,
                                 fill_mshr.type);
-  
+    } else {
+      impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, champsim::address{0},
+                                fill_mshr.type);
+
+    }
   
     if (way != set_end) {
       if (way->valid && way->prefetch) {
@@ -323,6 +334,9 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
                     *it, set_idx, way_idx);
         }
         register_sector_access(*it, way_idx);
+        impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, fill_mshr.address,
+                                fill_mshr.type);
+
         it = mshr_accesses[mshr_address].erase(it);
       }
       if (mshr_accesses[mshr_address].size() == 0)

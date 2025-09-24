@@ -32,6 +32,7 @@ namespace champsim
 {
 
 uint64_t set_byte_mask(uint64_t byte_mask, uint64_t offset);
+uint64_t get_byte_mask(uint64_t byte_mask, uint64_t offset);
 
 struct cache_queue_stats {
   uint64_t RQ_ACCESS = 0;

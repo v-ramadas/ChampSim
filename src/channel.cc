@@ -219,3 +219,8 @@ uint64_t champsim::set_byte_mask(uint64_t byte_mask, uint64_t offset)
     return (byte_mask | ((1ULL << (SECTOR_SIZE)) - 1) << offset * SECTOR_SIZE);
 }
 
+uint64_t champsim::get_byte_mask(uint64_t byte_mask, uint64_t offset)
+{
+    return (byte_mask >> (offset * SECTOR_SIZE));
+}
+
