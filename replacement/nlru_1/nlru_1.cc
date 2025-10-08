@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cassert>
+#include <climits>
 
 nlru_1::nlru_1(CACHE* cache) : nlru_1(cache, cache->NUM_SET, cache->NUM_WAY) {}
 
@@ -17,7 +18,9 @@ long nlru_1::find_victim(uint32_t triggering_cpu, uint64_t instr_id, long set, c
   auto victim = std::min_element(begin, end);
   assert(begin <= victim);
   assert(victim < end);
-  return std::distance(begin, victim);
+  long victim_idx = std::distance(begin, victim);
+  *victim = ULLONG_MAX;
+  return victim_idx;
 }
 
 void nlru_1::replacement_cache_fill(uint32_t triggering_cpu, long set, long way, champsim::address full_addr, champsim::address ip, champsim::address victim_addr,
@@ -26,13 +29,12 @@ void nlru_1::replacement_cache_fill(uint32_t triggering_cpu, long set, long way,
   // Mark the way as being used on the current cycle
   if (victim_addr == champsim::address{0}) {
       // Components of fill not requested
-      last_used_cycles.at((std::size_t)(set * NUM_WAY + way)) = lru_counter++;
-  } else {
-      // Component of fill requests
       if (lru_counter >= 1000)
           lru_counter = 0;
 
       last_used_cycles.at((std::size_t)(set * NUM_WAY + way)) = lru_counter++;
+  } else {
+      last_used_cycles.at((std::size_t)(set * NUM_WAY + way)) = mru_counter++;
   }
 }
 

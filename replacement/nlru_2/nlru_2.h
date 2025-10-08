@@ -10,8 +10,8 @@ class nlru_2 : public champsim::modules::replacement
 {
   long NUM_WAY;
   std::vector<uint64_t> last_used_cycles;
-  uint64_t mru_counter = 0;
-  uint64_t lru_counter = 0;
+  std::vector<uint64_t> mru_counter;
+  std::vector<uint64_t> lru_counter;
 
 public:
   explicit nlru_2(CACHE* cache);
