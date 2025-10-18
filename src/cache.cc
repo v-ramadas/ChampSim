@@ -352,8 +352,8 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
                     *it, set_idx, way_idx);
         }
         register_sector_access(*it, way_idx);
-        impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, fill_mshr.address,
-                                fill_mshr.type);
+//        impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, fill_mshr.address,
+//                                fill_mshr.type);
 
         it = mshr_accesses[mshr_address].erase(it);
       }
@@ -394,23 +394,25 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   // update replacement policy
   const auto way_idx = std::distance(set_begin, way);
   unsigned num_blocks_to_update = 0;
-  auto block_address = champsim::address{align_address(handle_pkt.address.to<uint64_t>(), BLOCK_SIZE)};
-  if (hit) {
-      while (num_blocks_to_update < num_blocks) {
-          auto block_way = std::find_if(set_begin, set_end, [matcher = matches_block_address(block_address)](const auto& x) { return x.valid && matcher(x); });
-          assert(block_way != set_end);
-          auto block_way_idx = std::distance(set_begin, block_way);
-          if (!num_blocks_to_update) {
-            impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), block_way_idx, module_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
-                                    hit);
-          } else {
-            impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), block_way_idx, champsim::address{0}, handle_pkt.ip, {}, handle_pkt.type,
-                                    hit);
-          }
-          num_blocks_to_update++;
-          block_address += CACHE_BLOCK_SIZE;
-      }
-  }
+//  auto block_address = champsim::address{align_address(handle_pkt.address.to<uint64_t>(), BLOCK_SIZE)};
+//  if (hit) {
+//      while (num_blocks_to_update < num_blocks) {
+//          auto block_way = std::find_if(set_begin, set_end, [matcher = matches_block_address(block_address)](const auto& x) { return x.valid && matcher(x); });
+//          assert(block_way != set_end);
+//          auto block_way_idx = std::distance(set_begin, block_way);
+//          if (!num_blocks_to_update) {
+//            impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), block_way_idx, module_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
+//                                    hit);
+//          } else {
+//            impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), block_way_idx, champsim::address{0}, handle_pkt.ip, {}, handle_pkt.type,
+//                                    hit);
+//          }
+//          num_blocks_to_update++;
+//          block_address += CACHE_BLOCK_SIZE;
+//      }
+//  }
+    impl_update_replacement_state(handle_pkt.cpu, get_set_index(handle_pkt.address), way_idx, module_address(handle_pkt), handle_pkt.ip, {}, handle_pkt.type,
+                             hit);
 
   if (hit) {
     sim_stats.hits.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
