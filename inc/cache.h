@@ -33,6 +33,7 @@
 #include <string>
 #include <type_traits>
 #include <vector>
+#include <list>
 #include <algorithm>
 #include "address.h"
 #include "bandwidth.h"
@@ -117,6 +118,11 @@ public:
     mshr_type(const tag_lookup_type& req, champsim::chrono::clock::time_point _time_enqueued);
     static mshr_type merge(mshr_type predecessor, mshr_type successor);
   };
+
+  uint64_t total_accesses = 0;
+  std::list <uint64_t> lru_stack;
+  std::unordered_map<uint64_t, std::list<uint64_t>::iterator> stack_pos;
+  std::vector<uint64_t> distance_counts;
 
 private:
   bool try_hit(const tag_lookup_type& handle_pkt);
@@ -208,6 +214,8 @@ public:
   void end_phase(unsigned cpu) final;
 
   // New auxilliary functions
+  void print_miss_ratio_curve() const;
+  bool mattson_stack_distance_algorithm(const tag_lookup_type& handle_pkt);
   bool check_compulsory_miss(const tag_lookup_type& handle_pkt);
   bool check_capacity_miss(const tag_lookup_type& handle_pkt);
   void register_sector_access(const champsim::address, uint64_t way_idx);

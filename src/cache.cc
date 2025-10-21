@@ -467,6 +467,8 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     }
   }
 
+  mattson_stack_distance_algorithm(handle_pkt);
+
   return hit;
 }
 
@@ -1169,6 +1171,8 @@ void CACHE::end_phase(unsigned finished_cpu)
     ul->roi_stats.WQ_TO_CACHE = ul->sim_stats.WQ_TO_CACHE;
     ul->roi_stats.WQ_FORWARD = ul->sim_stats.WQ_FORWARD;
   }
+
+  print_miss_ratio_curve();
 }
 
 template <typename T>
@@ -1283,4 +1287,121 @@ void CACHE::register_sector_eviction(uint64_t set_idx, std::vector<uint64_t> way
   
   assert(subblocks_accessed >= 0);
   sim_stats.evictions_breakdown[subblocks_accessed].increment(std::pair{fill_mshr.type, fill_mshr.cpu});
+}
+
+bool CACHE::mattson_stack_distance_algorithm(const tag_lookup_type& handle_pkt) {
+  if (handle_pkt.type == access_type::TRANSLATION) {
+      return false;
+  }
+
+  if (NAME.find(std::string("L1D")) == std::string::npos) {
+      return false;
+  }
+
+  total_accesses++;
+
+  uint64_t address = align_address(handle_pkt.address.to<uint64_t>(), CACHE_BLOCK_SIZE);
+  auto it_map = stack_pos.find(address);
+  if (it_map != stack_pos.end()) {
+    // HIT: Calculate stack distance, record in histogram, and update LRU stack.
+    // The list iterator to the element's current position
+    std::list<uint64_t>::iterator it_list = it_map->second;
+
+    // Calculate the stack distance (depth)
+    // The distance is the number of *unique* elements in the stack above the requested element.
+    // distance = number of elements from the front of the list up to, but not including, *it_list.
+    uint64_t distance = 0;
+    for (auto it = lru_stack.begin(); it != it_list; ++it) {
+        distance++;
+    }
+
+    // distance_counts is 0-indexed, so distance 1 corresponds to index 0, etc.
+    if (distance >= (uint64_t)distance_counts.size()) {
+        distance_counts.resize(distance + 1, 0);
+    }
+    distance_counts[distance]++;
+
+    // Update LRU stack: Move the accessed element to the front (Most Recently Used).
+    lru_stack.splice(lru_stack.begin(), lru_stack, it_list);
+    
+    // The iterator in the map is still valid and now points to the front (lru_stack.begin()).
+    it_map->second = lru_stack.begin();
+
+  } else {
+    // MISS: The address is not in the stack (a compulsory miss for all cache sizes).
+    // This is treated as a distance of 'infinity' for the MRC.
+
+    // The size of the current stack before insertion is the maximum distance observed so far.
+    // A compulsory miss contributes to the miss count for all cache sizes > current stack size.
+
+    // distance is the size of the stack
+    uint64_t distance = lru_stack.size();
+
+    // Resize the histogram to account for the new max distance + 1
+    if (distance >= (uint64_t)distance_counts.size()) {
+        distance_counts.resize(distance + 1, 0);
+    }
+    // distance_counts[distance] accounts for the misses (stack distance is distance + 1, or 'infinity')
+    // This miss should be counted against the capacity *one greater* than the current stack size.
+    // However, for the standard Mattson algorithm implementation, a miss *introduces* a new element.
+    // The stack distance is usually defined as $d$, where a hit is counted for all cache sizes $\ge d$.
+    // A miss has a stack distance equal to the current stack size $S$ plus one (if we consider a max capacity of $S+1$).
+    // Let's use the definition where distance $d$ means a hit for cache size $d$.
+
+    // Add the new element to the front of the LRU stack.
+    lru_stack.push_front(address);
+    stack_pos[address] = lru_stack.begin();
+
+    // The distance count for 'infinity' is implied.
+  }
+
+  return true;
+}
+
+void CACHE::print_miss_ratio_curve() const {
+      if (NAME.find(std::string("L1D")) == std::string::npos) {
+         return;
+      }
+
+      fmt::print ( "\n--- {} Miss Ratio Curve (MRC) ---\n", NAME);
+      fmt::print ( "Cache Size (d) | Hit Count | Miss Count | Miss Ratio\n");
+      fmt::print ( "--------------------------------------------------\n");
+
+      long long cumulative_hits = 0;
+      int max_cache_size = distance_counts.size();
+
+      // Total Misses for a size d = Total Accesses - Cumulative Hits up to size d.
+      // Stack distance d means a hit in a cache of size d.
+      for (int d = 1; d <= max_cache_size; ++d) {
+          // distance_counts is 0-indexed, so distance d (size d) is at index d-1
+          if (d - 1 < (int)distance_counts.size()) {
+              cumulative_hits += distance_counts[d - 1];
+          }
+
+          long long miss_count = total_accesses - cumulative_hits;
+          double miss_ratio = (double)miss_count / total_accesses;
+
+          if ((d > 0) && ((d & (d-1)) == 0)) {
+              fmt::print("{} | {} | {} | {:f}\n", d, cumulative_hits, miss_count, miss_ratio);
+          }
+      }
+
+      // Add the 'infinite' cache size entry:
+      // Cache Size = unique elements (stack_pos.size()), which results in only compulsory misses.
+      // Total unique addresses: all accesses hit eventually, so miss count is just compulsory misses.
+      long long unique_accesses = stack_pos.size();
+
+      // This is complex, so for simplicity in the basic algorithm presentation, we stop at max_cache_size,
+      // which covers all hits that occurred in the trace.
+
+      // A full MRC for all sizes up to the number of unique elements is often computed.
+      // For a size equal to the total number of unique elements, all non-compulsory misses are hits.
+      // Let's print the maximum, which is the total unique elements in the trace.
+      // The miss count at this size is the number of accesses that were a "first-time" access (compulsory misses).
+      long long final_hit_count = cumulative_hits;
+      long long final_miss_count = total_accesses - final_hit_count;
+      double final_miss_ratio = (double)final_miss_count / total_accesses;
+
+      fmt::print ( "--------------------------------------------------\n");
+      fmt::print("Unique ({}) | {} | {} | {:f}\n", unique_accesses, final_hit_count, final_miss_count, final_miss_ratio);
 }
