@@ -467,7 +467,12 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
     }
   }
 
-  mattson_stack_distance_algorithm(handle_pkt);
+  if (ENABLE_MISS_BREAKDOWN) {
+    check_compulsory_miss(handle_pkt);
+    // Compulsory misses are subtracted away at the end
+    check_capacity_miss(handle_pkt);
+    mattson_stack_distance_algorithm(handle_pkt);
+  }
 
   return hit;
 }
@@ -562,12 +567,6 @@ bool CACHE::handle_miss(const tag_lookup_type& handle_pkt)
     }
   }*/
 
-  if (ENABLE_MISS_BREAKDOWN) {
-    check_compulsory_miss(handle_pkt);
-    // Compulsory misses are subtracted away at the end
-    check_capacity_miss(handle_pkt);
-  }
-
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
 
@@ -585,12 +584,6 @@ bool CACHE::handle_write(const tag_lookup_type& handle_pkt)
   mshr_type to_allocate{handle_pkt, current_time};
   to_allocate.data_promise.ready_at(current_time + (warmup ? champsim::chrono::clock::duration{} : FILL_LATENCY));
   inflight_writes.push_back(to_allocate);
-
-  if (ENABLE_MISS_BREAKDOWN) {
-    check_compulsory_miss(handle_pkt);
-    // Compulsory misses are subtracted away at the end
-    check_capacity_miss(handle_pkt);
-  }
 
   sim_stats.misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
   sim_stats.total_misses.increment(std::pair{handle_pkt.type, handle_pkt.cpu});
@@ -1072,13 +1065,13 @@ void CACHE::begin_phase()
   new_sim_stats.name = NAME;
  
   // Stats to be carried over into next phase
-  //new_sim_stats.total_hits = sim_stats.total_hits;
-  //new_sim_stats.total_misses = sim_stats.total_misses;
-  //new_sim_stats.compulsory_misses = sim_stats.compulsory_misses;
-  //new_sim_stats.capacity_misses = sim_stats.capacity_misses;
-  //new_sim_stats.total_unrealised_hits = sim_stats.total_unrealised_hits;
-  //new_sim_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
-  //new_sim_stats.total_evictions = sim_stats.total_evictions;
+  new_sim_stats.total_hits = sim_stats.total_hits;
+  new_sim_stats.total_misses = sim_stats.total_misses;
+  new_sim_stats.compulsory_misses = sim_stats.compulsory_misses;
+  new_sim_stats.capacity_misses = sim_stats.capacity_misses;
+  new_sim_stats.total_unrealised_hits = sim_stats.total_unrealised_hits;
+  new_sim_stats.total_no_access_subblocks = sim_stats.total_no_access_subblocks;
+  new_sim_stats.total_evictions = sim_stats.total_evictions;
   //new_sim_stats.mshr_merge = sim_stats.mshr_merge;
   //new_sim_stats.mshr_return = sim_stats.mshr_return;
   //new_sim_stats.evictions_breakdown = sim_stats.evictions_breakdown;
@@ -1223,7 +1216,7 @@ bool CACHE::check_compulsory_miss(const tag_lookup_type& handle_pkt) {
       return false;
   }
 
-  uint64_t address = align_address(handle_pkt.address.to<uint64_t>(), BLOCK_SIZE);
+  uint64_t address = align_address(handle_pkt.address.to<uint64_t>(), CACHE_BLOCK_SIZE);
   auto it = find(footprint.begin(), footprint.end(), address);
   bool result = false;
   if (it == footprint.end()) {
