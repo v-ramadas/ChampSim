@@ -343,7 +343,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
                     *it, set_idx, way_idx);
         }
         register_sector_access(*it, way_idx);
-        impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, module_address(fill_mshr), fill_mshr.ip, fill_mshr.address,
+        impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, champsim::address{0}, fill_mshr.ip, fill_mshr.address,
                                 fill_mshr.type);
 
         it = mshr_accesses[mshr_address].erase(it);

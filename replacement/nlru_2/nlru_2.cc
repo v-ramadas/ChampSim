@@ -32,7 +32,8 @@ void nlru_2::replacement_cache_fill(uint32_t triggering_cpu, long set, long way,
       last_used_cycles.at((std::size_t)(set * NUM_WAY + way)) = lru_counter.at((std::size_t)(set))++;
   } else {
       // Accessed requests
-      mru_counter.at((std::size_t)(set)) += NUM_WAY;
+      if (full_addr != champsim::address{0})
+          mru_counter.at((std::size_t)(set)) += NUM_WAY;
       last_used_cycles.at((std::size_t)(set * NUM_WAY + way)) = mru_counter.at((std::size_t)(set));
   }
 }
@@ -43,7 +44,8 @@ void nlru_2::update_replacement_state(uint32_t triggering_cpu, long set, long wa
   // Mark the way as being used on the current cycle
   if (hit && access_type{type} != access_type::WRITE) // Skip this for writeback hits
   {
-    mru_counter.at((std::size_t)(set)) += NUM_WAY;
+    if (full_addr != champsim::address{0})
+        mru_counter.at((std::size_t)(set)) += NUM_WAY;
     last_used_cycles.at((std::size_t)(set * NUM_WAY + way)) = mru_counter.at((std::size_t)(set));
   }
 }
