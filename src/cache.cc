@@ -201,7 +201,6 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   bool evicted = false;
   champsim::address evicting_address{};
   uint32_t metadata_thru = 0;
-  uint64_t block_mask = (0x1 << LOG2_CACHE_BLOCK_SIZE) - 1;
   bool sent_writeback_downstream = false;
 
   while (num_blocks_filled < num_blocks) {
