@@ -169,6 +169,7 @@ private:
   unsigned CACHE_BLOCK_SIZE;
   unsigned LOG2_CACHE_BLOCK_SIZE;
   unsigned num_blocks = 1;
+  uint64_t block_mask = ~0ULL;
   uint64_t MAX_NUM_WAY;
   const unsigned SECTOR_SIZE = 8;
   const unsigned num_sectors = BLOCK_SIZE/SECTOR_SIZE;
