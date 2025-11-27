@@ -198,23 +198,41 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   auto fill_block_packet = fill_mshr;
   fill_block_packet.address = champsim::address{align_address(fill_block_packet.address.to<uint64_t>(), BLOCK_SIZE)};
   fill_block_packet.v_address = champsim::address{align_address(fill_block_packet.v_address.to<uint64_t>(), BLOCK_SIZE)};
+  fill_block_packet.byte_mask = fill_mshr.byte_mask;
   bool evicted = false;
   champsim::address evicting_address{};
   uint32_t metadata_thru = 0;
 
+  // Update byte mask based on mshr hits-under-misses
+  uint64_t mshr_address = (fill_mshr.address.to<uint64_t>()/BLOCK_SIZE)*BLOCK_SIZE;
+  if (mshr_accesses.find(mshr_address) != mshr_accesses.end()) {
+      // Found list of addresses
+      for (auto it = mshr_accesses[mshr_address].begin();
+             it != mshr_accesses[mshr_address].end();) {
+          auto block_idx = ((*it).to<uint64_t>() - mshr_address)/CACHE_BLOCK_SIZE;
+          fill_block_packet.byte_mask |= (block_mask << (block_idx * CACHE_BLOCK_SIZE));
+          it = mshr_accesses[mshr_address].erase(it);
+      }
+      if (mshr_accesses[mshr_address].size() == 0)
+          mshr_accesses.erase(mshr_address);
+  }
+
+  //Evict necessary ways
   while (num_blocks_filled < num_blocks) {
+    
     auto way = std::find_if(set_begin, set_end, [matcher = matches_block_address(fill_block_packet.address)](const auto& x) { return x.valid && matcher(x); });
     const auto hit = (way != set_end);
     // Fill block in cache. Discard fetched block and place new block in LRU
     if (hit) {
-//      const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier 
-//      if ((champsim::get_byte_mask(fill_mshr.byte_mask, num_blocks_filled) & block_mask) != 0x0) {
-//        impl_replacement_cache_fill(fill_mshr.cpu, set_idx, way_idx, module_block_address(fill_block_packet), fill_mshr.ip, fill_mshr.address,
-//                                  fill_mshr.type);
-//      } else {
-//        impl_replacement_cache_fill(fill_mshr.cpu, set_idx, way_idx, module_block_address(fill_block_packet), fill_mshr.ip, champsim::address{0},
-//                                fill_mshr.type);
-//    }
+      const auto way_idx = std::distance(set_begin, way);             // cast protected by earlier 
+      if ((champsim::get_byte_mask(fill_block_packet.byte_mask, num_blocks_filled) & block_mask) != 0x0) {
+        register_sector_access(fill_block_packet.address, way_idx);
+        impl_replacement_cache_fill(fill_mshr.cpu, set_idx, way_idx, module_block_address(fill_block_packet), fill_mshr.ip, fill_block_packet.address,
+                                  fill_mshr.type);
+     // } else {
+     //   impl_replacement_cache_fill(fill_mshr.cpu, set_idx, way_idx, module_block_address(fill_block_packet), fill_mshr.ip, champsim::address{0},
+     //                           fill_mshr.type);
+    }
 
       ++num_blocks_filled;
       fill_block_packet.address += CACHE_BLOCK_SIZE;
@@ -271,7 +289,6 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
                    fill_mshr.data_promise->pf_metadata,
                    way->dirty ? "YES" : "NO");
       }
-
     }
 
     ways_to_fill.push_back(std::pair<mshr_type, uint64_t>{fill_block_packet, way_idx});
@@ -299,7 +316,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   num_blocks_filled = 0;
   for (auto it : ways_to_fill) {
     if ((champsim::get_byte_mask(it.first.byte_mask, num_blocks_filled) & block_mask) != 0x0) {
-
+        register_sector_access(it.first.address, it.second);
         if (num_blocks_filled == 0) {
           impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), it.second, module_address(fill_mshr), fill_mshr.ip, evicting_address,
                                 fill_mshr.type);
@@ -332,13 +349,15 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
   sim_stats.mshr_return.increment(std::pair{fill_mshr.type, fill_mshr.cpu});
 
   //Update utilization structs now
-  uint64_t mshr_address = (fill_mshr.address.to<uint64_t>()/BLOCK_SIZE)*BLOCK_SIZE;
+  /*uint64_t mshr_address = (fill_mshr.address.to<uint64_t>()/BLOCK_SIZE)*BLOCK_SIZE;
   if (mshr_accesses.find(mshr_address) != mshr_accesses.end()) {
       // Found list of addresses
       for (auto it = mshr_accesses[mshr_address].begin();
              it != mshr_accesses[mshr_address].end();) {
 
         auto way = std::find_if(set_begin, set_end, [matcher = matches_block_address((*it))](const auto& x) { return x.valid && matcher(x); });
+                fmt::print("[{}] {} registering sector access for address: {} set: {} way: {}\n", NAME, __func__,
+                    *it, set_idx, std::distance(set_begin, way));
         assert(set_begin <= way);
         assert(way <= set_end);
         assert(way != set_end);
@@ -347,6 +366,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
             fmt::print("[{}] {} registering sector access for address: {} set: {} way: {}\n", NAME, __func__,
                     *it, set_idx, way_idx);
         }
+
         register_sector_access(*it, way_idx);
         impl_replacement_cache_fill(fill_mshr.cpu, get_set_index(fill_mshr.address), way_idx, champsim::address{0}, fill_mshr.ip, fill_mshr.address,
                                 fill_mshr.type);
@@ -355,7 +375,7 @@ bool CACHE::handle_fill(const mshr_type& fill_mshr)
       }
       if (mshr_accesses[mshr_address].size() == 0)
           mshr_accesses.erase(mshr_address);
-  }
+  }*/
 
 
   response_type response{fill_mshr.address, fill_mshr.v_address, fill_mshr.data_promise->data, metadata_thru, fill_mshr.instr_depend_on_me};
@@ -377,7 +397,6 @@ bool CACHE::try_hit(const tag_lookup_type& handle_pkt)
   bool hit = true;
   auto metadata_thru = handle_block_pkt.pf_metadata;
   std::vector<set_type::iterator> ways_hit;
-  champsim::address hit_data = champsim::address{0};
 
   // access cache
   auto [set_begin, set_end] = get_set_span(handle_pkt.address);
