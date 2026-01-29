@@ -95,9 +95,10 @@ void ResetCurrentInstruction(VOID* ip)
 
 BOOL ShouldWrite(void* ip)
 {
-  bool shouldWrite = false;
   ADDRINT addr = (ADDRINT)ip;
-  if (addr >= ROIStartAddress && addr < ROIEndAddress) {
+  bool shouldWrite = false;
+
+  if (addr >= ROIStartAddress && addr <= ROIEndAddress) {// && addr <= ROIEndAddress) {
     ++instrCount;
     //std::cerr << "Addr " << std::hex << addr << " ROIStartAddress " << ROIStartAddress << " ROIEndAddress " << ROIEndAddress << std::dec << std::endl;
     shouldWrite = ((instrCount > KnobSkipInstructions.Value()) && (instrCount <= (KnobSkipInstructions.Value() + KnobTraceInstructions.Value())));
